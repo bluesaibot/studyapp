@@ -53,7 +53,6 @@ export class Controller {
     private readonly speed = 1,
   ) {
     db.closeOpenSessions()
-    db.settleGarden()
     this.week.claimReached(new Date())
   }
 
@@ -70,6 +69,12 @@ export class Controller {
       todayFocusMs: this.session ? this.session.dayFocusAtStartMs + this.session.focusMs : savedToday,
       lastTask: this.session?.task ?? this.db.lastTask(),
       gardenBeds: this.db.gardenBeds(),
+      beds: this.db.beds(),
+      shears: this.db.shears(),
+      pollen: this.db.pollen(),
+      soilStock: this.db.soilStock(),
+      mixes: this.db.mixes(),
+      ownedPots: this.db.ownedPots(),
       nursery: this.db.nursery(),
       pollinations: this.db.pollinations(),
       settings: this.db.settings(),
@@ -193,17 +198,27 @@ export class Controller {
     this.mutate(() => this.db.useFund(fundId, plantId, this.session?.task || null))
   setCurrentPlant = (plantId: number) => this.mutate(() => this.db.setCurrentPlant(plantId))
   renamePlant = (plantId: number, name: string) => this.mutate(() => this.db.renamePlant(plantId, name))
-  takeCutting = (plantId: number) =>
-    this.mutate(() => this.db.takeCutting(plantId, Math.floor(Math.random() * 2 ** 31), this.session?.task || null))
-  sow = (nurseryId: number) => this.mutate(() => this.db.sow(nurseryId))
+  takeCutting = (plantId: number, leafIndex: number) =>
+    this.mutate(() => this.db.takeCutting(plantId, leafIndex, Math.floor(Math.random() * 2 ** 31), this.session?.task || null))
+  sow = (nurseryId: number, bedId: number | null) => this.mutate(() => this.db.sow(nurseryId, bedId))
   digUp = (plantId: number) => this.mutate(() => this.db.digUp(plantId))
   buyBed = () => this.mutate(() => this.db.buyBed())
   moveToGreenhouse = (plantId: number) => this.mutate(() => this.db.moveToGreenhouse(plantId))
-  moveToGarden = (plantId: number) => this.mutate(() => this.db.moveToGarden(plantId))
+  moveToGarden = (plantId: number, bedId: number | null) => this.mutate(() => this.db.moveToGarden(plantId, bedId))
+  swapBeds = (bedA: number, bedB: number) => this.mutate(() => this.db.swapBeds(bedA, bedB))
+  swapShelf = (plantA: number, plantB: number) => this.mutate(() => this.db.swapShelf(plantA, plantB))
   startPollination = (plantA: number, plantB: number) => this.mutate(() => this.db.startPollination(plantA, plantB))
   startWithPollen = (plantId: number) => this.mutate(() => this.db.startWithPollen(plantId))
-  feedPollination = (id: number, amount: number) =>
-    this.mutate(() => this.db.feedPollination(id, amount, () => Math.floor(Math.random() * 2 ** 31)))
+  feedPollination = (id: number, amount: number) => this.mutate(() => this.db.feedPollination(id, amount))
+  setPollinationFill = (id: number, on: boolean) => this.mutate(() => this.db.setPollinationFill(id, on))
+  buySoil = (ingredient: string, litres: number) => this.mutate(() => this.db.buySoil(ingredient, litres))
+  mixSoil = (recipe: Record<string, number>) => this.mutate(() => this.db.mixSoil(recipe))
+  discardMix = (mixId: number) => this.mutate(() => this.db.discardMix(mixId))
+  fillBed = (bedId: number, mixId: number) => this.mutate(() => this.db.fillBed(bedId, mixId))
+  buyPot = (pot: number) => this.mutate(() => this.db.buyPot(pot))
+  setPot = (plantId: number, pot: number) => this.mutate(() => this.db.setPot(plantId, pot))
+  buyShears = (id: string) => this.mutate(() => this.db.buyShears(id))
+  buyPollen = () => this.mutate(() => this.db.buyPollen())
   taskDone = (taskId: number) => this.mutate(() => this.week.taskDone(taskId, new Date()))
   taskUndo = (taskId: number) => this.mutate(() => this.week.taskUndo(taskId, new Date()))
   addTask = (title: string, timesPerWeek: number) => this.mutate(() => this.week.addTask(title, timesPerWeek))

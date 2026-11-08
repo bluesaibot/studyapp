@@ -444,7 +444,7 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
     <main className="workspace">
       <header className="workspace-bar">
         {session && plant && (
-          <PlantView className="workspace-plant" plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} />
+          <PlantView className="workspace-plant" plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} />
         )}
         {session && plant && <PlantStage growth={plant.growth} compact />}
         {session && <span className="workspace-clock" role="timer">{clock(blockMs - session.blockFocusMs)}</span>}

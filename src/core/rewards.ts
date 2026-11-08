@@ -15,22 +15,29 @@ export const REWARDS = {
   /** Share of earned sun that grows the current plant; the rest goes to the wallet. */
   autoGrowthShare: 0.5,
   waterCost: 10,
-  waterGrowth: 15,
+  waterGrowth: 10,
   /** A plant's sex shows from this growth, the Mature stage. */
   sexShownGrowth: 300,
-  /** A cutting is about half an hour of study. */
-  cuttingCost: 15,
-  cuttingMinGrowth: 100,
+  /** Sun a plant takes to sprout: seeds take long, and rarer plants take longer still. */
+  sproutSeedSun: 100,
+  sproutCuttingSun: 40,
+  /** Multiplier on the sprouting sun, by how rare a plant is. */
+  sproutRarity: [1, 1.5, 2.5, 4],
+  /** A plant is only ready for the greenhouse once it is this big. */
+  showGrowth: 100,
+  /** Leaves can be cut from the Mature stage, and only a few can regrow at once. */
+  cuttingMinGrowth: 300,
+  maxCutQueue: 3,
+  leafRegrowSun: 30,
   /** More garden beds. Sun to spend comes in at about 900 a week. */
   bedCosts: [300, 700, 1500, 3000],
-  /** Filling the pollination bar. Across species takes far more, across families a fortune. */
-  pollinateSameSpecies: 150,
-  pollinateSameFamily: 600,
-  pollinateAcrossFamilies: 1200,
-  /** Bought pollen makes any flowering plant fertile by itself, on top of the same-species price. */
+  /** Filling the pollination bar. Crossing two varieties of a group takes more. */
+  pollinateSameVariety: 150,
+  pollinateSameGroup: 400,
+  /** Bought pollen makes any flowering plant fertile by itself, once. */
   pollenCost: 200,
-  /** Cuttings root from this growth. */
-  newPlantGrowth: 20,
+  /** Studied sun it takes a plant to bloom again after making seeds. */
+  bloomRestSun: 300,
   /** A todo pays a little; finishing its topic is where the real reward is. */
   todoBaseSun: 2,
   todoSunPerHour: 2,

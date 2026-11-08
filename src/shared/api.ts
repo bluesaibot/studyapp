@@ -1,5 +1,7 @@
 import type { Genome } from '../core/plants'
+import type { LeafState } from '../core/leaves'
 import type { Fund } from '../core/rewards'
+import type { Soil, SoilStats } from '../core/soil'
 import type { SessionSettings, SessionState } from '../core/session'
 import type { StreakState } from '../core/streak'
 import type { CalendarSettings, CalendarState, EventKind, FinishesWith } from '../core/calendar'
@@ -15,8 +17,32 @@ export interface PlantRow {
   courseTag: string | null
   isCurrent: boolean
   location: 'garden' | 'greenhouse'
+  bedId: number | null
+  /** Its place in the greenhouse. */
+  shelf: number | null
+  /** What it grows in. Without one it is plain garden soil, with no effects. */
+  soil: Soil | null
+  /** Studied sun until it can bloom again. */
+  restLeft: number
+  leaves: LeafState
   /** Where it came from, when it grew from your own plants. */
   origin: { kind: 'cutting' | 'cross'; parentA: number; parentB: number | null } | null
+}
+
+/** A place in the garden, next to the beds before and after it. */
+export interface BedRow {
+  id: number
+  position: number
+  soil: Soil | null
+}
+
+/** Soil mixed on the bench and waiting for a bed. */
+export interface MixRow {
+  id: number
+  name: string
+  color: string
+  litres: number
+  stats: SoilStats
 }
 
 /** A seed or a cutting waiting for a free garden bed. */
@@ -35,6 +61,8 @@ export interface PollinationRow {
   plantB: number | null
   paid: number
   needed: number
+  /** Whether the sun earned while studying goes in here. */
+  studyFill: boolean
 }
 
 export interface FundRow extends Fund {
@@ -62,6 +90,13 @@ export interface Snapshot {
   lastTask: string
   settings: SessionSettings
   gardenBeds: number
+  beds: BedRow[]
+  /** Cuts left in your shears. */
+  shears: number
+  pollen: number
+  soilStock: Record<string, number>
+  mixes: MixRow[]
+  ownedPots: number[]
   nursery: NurseryRow[]
   pollinations: PollinationRow[]
   week: WeekState
@@ -97,15 +132,26 @@ export interface StudyApi {
   nextItem(request: DeckRequest): Promise<StudyItem | null>
   review(request: ReviewRequest): Promise<void>
   resetProgress(courseId: number): Promise<void>
-  takeCutting(plantId: number): Promise<void>
-  sow(nurseryId: number): Promise<void>
+  takeCutting(plantId: number, leafIndex: number): Promise<void>
+  sow(nurseryId: number, bedId: number | null): Promise<void>
   digUp(plantId: number): Promise<void>
   buyBed(): Promise<void>
   moveToGreenhouse(plantId: number): Promise<void>
-  moveToGarden(plantId: number): Promise<void>
+  moveToGarden(plantId: number, bedId: number | null): Promise<void>
+  swapBeds(bedA: number, bedB: number): Promise<void>
+  swapShelf(plantA: number, plantB: number): Promise<void>
   startPollination(plantA: number, plantB: number): Promise<void>
   startWithPollen(plantId: number): Promise<void>
   feedPollination(id: number, amount: number): Promise<void>
+  setPollinationFill(id: number, on: boolean): Promise<void>
+  buySoil(ingredient: string, litres: number): Promise<void>
+  mixSoil(recipe: Record<string, number>): Promise<void>
+  discardMix(mixId: number): Promise<void>
+  fillBed(bedId: number, mixId: number): Promise<void>
+  buyPot(pot: number): Promise<void>
+  setPot(plantId: number, pot: number): Promise<void>
+  buyShears(id: string): Promise<void>
+  buyPollen(): Promise<void>
   taskDone(taskId: number): Promise<void>
   taskUndo(taskId: number): Promise<void>
   addTask(title: string, timesPerWeek: number): Promise<void>
@@ -166,6 +212,17 @@ export const API_METHODS = [
   'startPollination',
   'startWithPollen',
   'feedPollination',
+  'swapBeds',
+  'swapShelf',
+  'setPollinationFill',
+  'buySoil',
+  'mixSoil',
+  'discardMix',
+  'fillBed',
+  'buyPot',
+  'setPot',
+  'buyShears',
+  'buyPollen',
   'taskDone',
   'taskUndo',
   'addTask',

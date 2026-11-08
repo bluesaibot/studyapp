@@ -1,18 +1,22 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { crossGenomes, cuttingGenome, pollinationCost, pollinationProblem } from '../core/genetics'
+import { cutLeaf, cutProblem, leafType, NO_LEAF_STATE, regrowLeaves, rollNewLeaves, type LeafState } from '../core/leaves'
 import { fundGrowthAmount, fundSunAmount, REWARDS, type Fund } from '../core/rewards'
 import {
   FLOWERING_GROWTH,
+  growthFromSun,
   makeGenome,
-  POT_COLORS,
   speciesFromSeed,
+  sproutCost,
   SPROUT_GROWTH,
   type Genome,
 } from '../core/plants'
+import { POT_DESIGNS } from '../core/pots'
+import { bagPrice, BED_LITRES, ingredientById, mixStats, NO_SOIL_STATS, recipeColor, recipeLitres, recipeName, SHEARS, type Recipe, type Soil, type SoilStats } from '../core/soil'
 import { DEFAULT_SETTINGS, type SessionSettings, type SessionState } from '../core/session'
 import { STREAK } from '../core/streak'
-import type { FundRow, NurseryRow, PlantRow, PollinationRow } from '../shared/api'
+import type { BedRow, FundRow, MixRow, NurseryRow, PlantRow, PollinationRow } from '../shared/api'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -72,6 +76,22 @@ CREATE TABLE IF NOT EXISTS funds (
   used_at INTEGER,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS beds (
+  id INTEGER PRIMARY KEY,
+  position INTEGER NOT NULL,
+  soil TEXT
+);
+CREATE TABLE IF NOT EXISTS soil_stock (ingredient TEXT PRIMARY KEY, litres REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS soil_mixes (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  litres REAL NOT NULL,
+  stats TEXT NOT NULL,
+  recipe TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS owned_pots (pot INTEGER PRIMARY KEY);
 `
 
 interface PlantDbRow {
@@ -83,6 +103,12 @@ interface PlantDbRow {
   course_tag: string | null
   is_current: number
   location: 'garden' | 'greenhouse'
+  bed_id: number | null
+  shelf: number | null
+  own_soil: string | null
+  bed_soil: string | null
+  bloom_rest: number
+  leaves: string | null
   origin_kind: 'cutting' | 'cross' | null
   parent_a: number | null
   parent_b: number | null
@@ -102,6 +128,17 @@ export function openDb(dataDir: string) {
       db.exec("UPDATE plants SET location = 'garden' WHERE is_current = 1")
     })()
   }
+  const addColumn = (table: string, column: string, type: string) => {
+    const columns = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name)
+    if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+  addColumn('plants', 'bed_id', 'INTEGER')
+  addColumn('plants', 'shelf', 'INTEGER')
+  addColumn('plants', 'soil', 'TEXT')
+  addColumn('plants', 'bloom_rest', 'REAL NOT NULL DEFAULT 0')
+  addColumn('plants', 'leaves', 'TEXT')
+  addColumn('pollinations', 'study_fill', 'INTEGER NOT NULL DEFAULT 1')
+  db.exec("UPDATE plants SET shelf = id WHERE location = 'greenhouse' AND shelf IS NULL")
 
   const getMeta = (key: string): string | undefined =>
     (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value
@@ -111,10 +148,26 @@ export function openDb(dataDir: string) {
   const wallet = () => Number(getMeta('wallet') ?? 0)
   const addToWallet = (amount: number) => setMeta('wallet', String(wallet() + amount))
 
+  // Beds used to be only a number. Each one is its own place now, and plants already growing get theirs.
+  if ((db.prepare('SELECT COUNT(*) AS total FROM beds').get() as { total: number }).total === 0) {
+    db.transaction(() => {
+      const growing = db.prepare("SELECT id FROM plants WHERE location = 'garden' ORDER BY created_at, id").all() as { id: number }[]
+      const count = Math.max(Number(getMeta('gardenBeds') ?? 1), growing.length, 1)
+      for (let position = 0; position < count; position += 1) {
+        const bed = db.prepare('INSERT INTO beds (position) VALUES (?)').run(position).lastInsertRowid
+        if (growing[position]) db.prepare('UPDATE plants SET bed_id = ? WHERE id = ?').run(bed, growing[position].id)
+      }
+    })()
+  }
+
+  const parseSoil = (text: string | null): Soil | null => (text ? (JSON.parse(text) as Soil) : null)
+  const statsOf = (plant: PlantRow): SoilStats => plant.soil?.stats ?? NO_SOIL_STATS
+
   function plants(): PlantRow[] {
     const rows = db
       .prepare(
-        `SELECT plants.*, o.kind AS origin_kind, o.parent_a, o.parent_b FROM plants
+        `SELECT plants.*, plants.soil AS own_soil, beds.soil AS bed_soil, o.kind AS origin_kind, o.parent_a, o.parent_b FROM plants
+         LEFT JOIN beds ON beds.id = plants.bed_id
          LEFT JOIN plant_origin o ON o.plant_id = plants.id ORDER BY plants.created_at, plants.id`,
       )
       .all() as PlantDbRow[]
@@ -127,16 +180,20 @@ export function openDb(dataDir: string) {
       courseTag: row.course_tag,
       isCurrent: row.is_current === 1,
       location: row.location,
+      bedId: row.bed_id,
+      shelf: row.shelf,
+      soil: parseSoil(row.location === 'garden' ? row.bed_soil : row.own_soil),
+      restLeft: row.bloom_rest,
+      leaves: row.leaves ? (JSON.parse(row.leaves) as LeafState) : NO_LEAF_STATE,
       origin: row.origin_kind ? { kind: row.origin_kind, parentA: row.parent_a!, parentB: row.parent_b } : null,
     }))
   }
 
-  function plantSeed(genome: Genome, courseTag: string | null, location: 'garden' | 'greenhouse' = 'garden'): number {
-    const now = Date.now()
+  function plantSeed(genome: Genome, courseTag: string | null, bedId: number): number {
     return Number(
       db
-        .prepare('INSERT INTO plants (genome, course_tag, created_at, location) VALUES (?, ?, ?, ?)')
-        .run(JSON.stringify(genome), courseTag, now, location).lastInsertRowid,
+        .prepare("INSERT INTO plants (genome, course_tag, created_at, location, bed_id) VALUES (?, ?, ?, 'garden', ?)")
+        .run(JSON.stringify(genome), courseTag, Date.now(), bedId).lastInsertRowid,
     )
   }
 
@@ -144,7 +201,15 @@ export function openDb(dataDir: string) {
     db.prepare('UPDATE plants SET is_current = (id = ?)').run(plantId)
   }
 
-  const gardenBeds = () => Number(getMeta('gardenBeds') ?? 1)
+  function beds(): BedRow[] {
+    const rows = db.prepare('SELECT id, position, soil FROM beds ORDER BY position').all() as { id: number; position: number; soil: string | null }[]
+    return rows.map((row) => ({ id: row.id, position: row.position, soil: parseSoil(row.soil) }))
+  }
+  const gardenBeds = () => beds().length
+  const emptyBeds = () => {
+    const taken = new Set(plants().map((plant) => plant.bedId))
+    return beds().filter((bed) => !taken.has(bed.id))
+  }
 
   const nurseryCount = () => (db.prepare('SELECT COUNT(*) AS total FROM nursery').get() as { total: number }).total
 
@@ -159,45 +224,55 @@ export function openDb(dataDir: string) {
     return rows.map((row) => ({ id: row.id, kind: row.kind, genome: JSON.parse(row.genome) as Genome, parentA: row.parent_a, parentB: row.parent_b }))
   }
 
-  /** Flowering plants have finished growing, and move to the greenhouse by themselves. */
-  function settleGarden() {
-    db.prepare("UPDATE plants SET location = 'greenhouse' WHERE location = 'garden' AND growth >= ?").run(FLOWERING_GROWTH)
-  }
-
   /**
-   * Keeps track of what grows in the garden. A free seed only comes when studying with an empty
-   * garden and an empty seed box, never from moving plants around, so it cannot block a bed.
+   * Keeps track of what grows in the garden. A free seed only comes when studying with nothing growing, a
+   * free bed and an empty seed box, never from moving plants around, so it cannot block a bed.
    */
   function ensureCurrentPlant(courseTag: string | null, mayPlantFreeSeed = false) {
-    settleGarden()
     const all = plants()
-    const inGarden = all.filter((plant) => plant.location === 'garden')
-    const current = inGarden.find((plant) => plant.isCurrent)
-    if (current) return
-    if (inGarden.length > 0) {
-      setCurrentPlant(inGarden[0].id)
+    const growing = all.filter((plant) => plant.location === 'garden' && plant.growth < FLOWERING_GROWTH)
+    if (growing.some((plant) => plant.isCurrent)) return
+    if (growing.length > 0) {
+      setCurrentPlant(growing[0].id)
       return
     }
-    if (!mayPlantFreeSeed || nurseryCount() > 0) return
+    const free = emptyBeds()[0]
+    if (!mayPlantFreeSeed || nurseryCount() > 0 || !free) return
     const seed = Math.floor(Math.random() * 2 ** 31)
     const speciesId = all.length === 0 ? 'monstera' : speciesFromSeed(seed).id
-    setCurrentPlant(plantSeed(makeGenome(speciesId, seed, 'common'), courseTag))
+    setCurrentPlant(plantSeed(makeGenome(speciesId, seed, 'common'), courseTag, free.id))
   }
 
-  /** Splits newly earned sun between what grows in the garden and the wallet. */
+  /** Sun for one plant: its soil adds to it, waiting leaves come first, and the rest makes it grow. */
+  function growPlant(plant: PlantRow, sun: number) {
+    const stats = statsOf(plant)
+    const regrow = regrowLeaves(plant.genome, plant.leaves, sun * (1 + stats.speed), plant.growth, true, stats.mutation, Math.random)
+    const growth = growthFromSun(plant.growth, regrow.left, sproutCost(plant.genome, plant.origin?.kind === 'cutting'))
+    const leaves = rollNewLeaves(plant.genome, regrow.state, plant.growth, growth, stats.mutation, Math.random)
+    db.prepare('UPDATE plants SET growth = ?, leaves = ? WHERE id = ?').run(growth, JSON.stringify(leaves), plant.id)
+  }
+
+  /** Splits newly earned sun between what grows in the garden and the wallet or an open pollination. */
   function applySun(amount: number, courseTag: string | null) {
     if (amount <= 0) return
     ensureCurrentPlant(courseTag, true)
-    const growing = plants().filter((plant) => plant.location === 'garden')
-    if (growing.length === 0) {
-      // An empty garden loses nothing: all of it can be spent instead.
-      addToWallet(amount)
-      return
+    const all = plants()
+    const growing = all.filter((plant) => plant.location === 'garden' && plant.growth < FLOWERING_GROWTH)
+    // Plants that are done growing still regrow leaves and get ready to bloom again, from studying alone.
+    for (const plant of all) {
+      if (growing.includes(plant) || plant.leaves.queue.length === 0) continue
+      const stats = statsOf(plant)
+      const regrow = regrowLeaves(plant.genome, plant.leaves, amount * REWARDS.autoGrowthShare * (1 + stats.speed), plant.growth, false, stats.mutation, Math.random)
+      db.prepare('UPDATE plants SET leaves = ? WHERE id = ?').run(JSON.stringify(regrow.state), plant.id)
     }
-    const each = (amount * REWARDS.autoGrowthShare) / growing.length
-    const grow = db.prepare('UPDATE plants SET growth = growth + ? WHERE id = ?')
-    for (const plant of growing) grow.run(each, plant.id)
-    addToWallet(amount * (1 - REWARDS.autoGrowthShare))
+    db.prepare('UPDATE plants SET bloom_rest = MAX(0, bloom_rest - ?) WHERE bloom_rest > 0').run(amount)
+    // An empty garden loses nothing: all of it can be spent instead.
+    const toSpend = growing.length === 0 ? amount : amount * (1 - REWARDS.autoGrowthShare)
+    for (const plant of growing) growPlant(plant, (amount * REWARDS.autoGrowthShare) / growing.length)
+    addToWallet(toSpend)
+    // Studying fills an open pollination bar, unless that was switched off.
+    const open = pollinations().find((row) => row.studyFill)
+    if (open) payPollination(open, toSpend)
     ensureCurrentPlant(courseTag, true)
   }
 
@@ -248,9 +323,12 @@ export function openDb(dataDir: string) {
     } else if (fund.kind === 'sun') {
       addToWallet(fundSunAmount(fund.rarity))
     } else if (fund.kind === 'fertilizer') {
-      db.prepare('UPDATE plants SET growth = growth + ? WHERE id = ?').run(fundGrowthAmount(fund.rarity), plantId)
+      const plant = plants().find((row) => row.id === plantId)
+      if (plant) growPlant(plant, fundGrowthAmount(fund.rarity))
     } else {
-      db.prepare('UPDATE plants SET pot = ? WHERE id = ?').run(fund.seed % POT_COLORS.length, plantId)
+      const pot = fund.seed % POT_DESIGNS.length
+      db.prepare('UPDATE plants SET pot = ? WHERE id = ?').run(pot, plantId)
+      db.prepare('INSERT OR IGNORE INTO owned_pots (pot) VALUES (?)').run(pot)
     }
     db.prepare('UPDATE funds SET used_at = ? WHERE id = ?').run(Date.now(), fundId)
     ensureCurrentPlant(courseTag)
@@ -258,8 +336,10 @@ export function openDb(dataDir: string) {
 
   function water(plantId: number) {
     if (wallet() < REWARDS.waterCost) return
+    const plant = plants().find((row) => row.id === plantId)
+    if (!plant) return
     addToWallet(-REWARDS.waterCost)
-    db.prepare('UPDATE plants SET growth = growth + ? WHERE id = ?').run(REWARDS.waterGrowth, plantId)
+    growPlant(plant, REWARDS.waterGrowth)
     ensureCurrentPlant(null)
   }
 
@@ -274,16 +354,15 @@ export function openDb(dataDir: string) {
     )
   }
 
-  const freeBeds = () => gardenBeds() - plants().filter((plant) => plant.location === 'garden').length
-
-  /** A seed starts from nothing, and a cutting is already a small plant that still has to root. */
-  function sow(nurseryId: number) {
+  /** Seeds and cuttings both start from nothing, and take the sun they need to sprout. */
+  function sow(nurseryId: number, bedId: number | null = null) {
     const row = db.prepare('SELECT * FROM nursery WHERE id = ?').get(nurseryId) as
       | { kind: 'seed' | 'cutting'; genome: string; parent_a: number | null; parent_b: number | null; course_tag: string | null }
       | undefined
-    if (!row || freeBeds() <= 0) return
-    const id = plantSeed(JSON.parse(row.genome) as Genome, row.course_tag)
-    if (row.kind === 'cutting') db.prepare('UPDATE plants SET growth = ? WHERE id = ?').run(REWARDS.newPlantGrowth, id)
+    const free = emptyBeds()
+    const bed = free.find((candidate) => candidate.id === bedId) ?? free[0]
+    if (!row || !bed) return
+    const id = plantSeed(JSON.parse(row.genome) as Genome, row.course_tag, bed.id)
     if (row.parent_a !== null) {
       db.prepare('INSERT INTO plant_origin (plant_id, kind, parent_a, parent_b) VALUES (?, ?, ?, ?)').run(id, row.kind === 'cutting' ? 'cutting' : 'cross', row.parent_a, row.parent_b)
     }
@@ -291,11 +370,11 @@ export function openDb(dataDir: string) {
     ensureCurrentPlant(row.course_tag)
   }
 
-  /** A seed that has not sprouted can go back in the box, to make room. It starts over when sown again. */
+  /** A plant that has not sprouted can go back in the box, to make room. It starts over when sown again. */
   function digUp(plantId: number) {
     const plant = plants().find((row) => row.id === plantId)
     if (!plant || plant.location !== 'garden' || plant.growth >= SPROUT_GROWTH) return
-    addToNursery('seed', plant.genome, plant.origin?.parentA ?? null, plant.origin?.parentB ?? null, plant.courseTag)
+    addToNursery(plant.origin?.kind === 'cutting' ? 'cutting' : 'seed', plant.genome, plant.origin?.parentA ?? null, plant.origin?.parentB ?? null, plant.courseTag)
     db.prepare('DELETE FROM plant_origin WHERE plant_id = ?').run(plantId)
     db.prepare('DELETE FROM plants WHERE id = ?').run(plantId)
     ensureCurrentPlant(null)
@@ -305,73 +384,224 @@ export function openDb(dataDir: string) {
     const cost = REWARDS.bedCosts[gardenBeds() - 1]
     if (cost === undefined || wallet() < cost) return
     addToWallet(-cost)
-    setMeta('gardenBeds', String(gardenBeds() + 1))
+    const last = beds().at(-1)?.position ?? -1
+    db.prepare('INSERT INTO beds (position) VALUES (?)').run(last + 1)
   }
 
-  /** Once it has sprouted, a plant can go on show. It only keeps growing back in a bed. */
+  const inPollination = (plantId: number) => pollinations().some((row) => row.plantA === plantId || row.plantB === plantId)
+
+  /** A plant takes its soil along into its pot. It is on show there, and only grows back in a bed. */
   function moveToGreenhouse(plantId: number) {
     const plant = plants().find((row) => row.id === plantId)
-    if (!plant || plant.location !== 'garden' || plant.growth < SPROUT_GROWTH) return
-    db.prepare("UPDATE plants SET location = 'greenhouse', is_current = 0 WHERE id = ?").run(plantId)
+    if (!plant || plant.location !== 'garden' || plant.growth < REWARDS.showGrowth || inPollination(plantId)) return
+    const shelf = (db.prepare('SELECT COALESCE(MAX(shelf), 0) + 1 AS next FROM plants').get() as { next: number }).next
+    db.prepare("UPDATE beds SET soil = NULL WHERE id = ?").run(plant.bedId)
+    db.prepare("UPDATE plants SET location = 'greenhouse', is_current = 0, bed_id = NULL, shelf = ?, soil = ? WHERE id = ?").run(shelf, plant.soil ? JSON.stringify(plant.soil) : null, plantId)
     ensureCurrentPlant(null)
   }
 
-  function moveToGarden(plantId: number) {
+  /** Back into a bed, to grow on or to pollinate. Its pot waits, and fresh soil in the bed wins over its own. */
+  function moveToGarden(plantId: number, bedId: number | null = null) {
     const plant = plants().find((row) => row.id === plantId)
-    if (!plant || plant.location !== 'greenhouse' || plant.growth >= FLOWERING_GROWTH || freeBeds() <= 0) return
-    db.prepare("UPDATE plants SET location = 'garden' WHERE id = ?").run(plantId)
+    const free = emptyBeds()
+    const bed = free.find((candidate) => candidate.id === bedId) ?? free[0]
+    if (!plant || plant.location !== 'greenhouse' || !bed) return
+    if (!bed.soil && plant.soil) db.prepare('UPDATE beds SET soil = ? WHERE id = ?').run(JSON.stringify(plant.soil), bed.id)
+    db.prepare("UPDATE plants SET location = 'garden', bed_id = ?, shelf = NULL, soil = NULL WHERE id = ?").run(bed.id, plantId)
     ensureCurrentPlant(null)
   }
 
-  /** The parent plant loses nothing. Only the sun is spent. The cutting waits in the seed box. */
-  function takeCutting(plantId: number, seed: number, courseTag: string | null) {
+  /** Swaps two beds, with their soil and their plants. */
+  function swapBeds(bedA: number, bedB: number) {
+    const all = beds()
+    const a = all.find((bed) => bed.id === bedA)
+    const b = all.find((bed) => bed.id === bedB)
+    if (!a || !b || a.id === b.id) return
+    const move = db.prepare('UPDATE beds SET position = ? WHERE id = ?')
+    move.run(b.position, a.id)
+    move.run(a.position, b.id)
+  }
+
+  function swapShelf(plantA: number, plantB: number) {
+    const all = plants()
+    const a = all.find((plant) => plant.id === plantA)
+    const b = all.find((plant) => plant.id === plantB)
+    if (!a || !b || a.id === b.id || a.location !== 'greenhouse' || b.location !== 'greenhouse') return
+    const move = db.prepare('UPDATE plants SET shelf = ? WHERE id = ?')
+    move.run(b.shelf, a.id)
+    move.run(a.shelf, b.id)
+  }
+
+  const shears = () => Number(getMeta('shears') ?? 0)
+  const pollen = () => Number(getMeta('pollen') ?? 0)
+
+  /** The leaf goes with the shears, and the plant regrows it, not always as it was. */
+  function takeCutting(plantId: number, leafIndex: number, seed: number, courseTag: string | null) {
     const plant = plants().find((row) => row.id === plantId)
-    if (!plant || plant.growth < REWARDS.cuttingMinGrowth || wallet() < REWARDS.cuttingCost) return
-    addToWallet(-REWARDS.cuttingCost)
-    addToNursery('cutting', cuttingGenome(plant.genome, seed), plantId, null, courseTag)
+    if (!plant || cutProblem(plant.genome, plant.leaves, plant.growth, leafIndex)) return
+    const stats = statsOf(plant)
+    const wear = 1 - stats.cuttings
+    if (shears() < wear) return
+    setMeta('shears', String(shears() - wear))
+    const genome = cuttingGenome(plant.genome, seed, { leaf: leafType(plant.genome, plant.leaves, leafIndex), mutation: stats.mutation })
+    addToNursery('cutting', genome, plantId, null, courseTag)
+    db.prepare('UPDATE plants SET leaves = ? WHERE id = ?').run(JSON.stringify(cutLeaf(plant.genome, plant.leaves, plant.growth, leafIndex)), plantId)
   }
 
   function pollinations(): PollinationRow[] {
-    return db
-      .prepare('SELECT id, plant_a AS plantA, plant_b AS plantB, paid, needed FROM pollinations WHERE done_at IS NULL ORDER BY id')
-      .all() as PollinationRow[]
+    const rows = db
+      .prepare('SELECT id, plant_a AS plantA, plant_b AS plantB, paid, needed, study_fill AS fill FROM pollinations WHERE done_at IS NULL ORDER BY id')
+      .all() as (Omit<PollinationRow, 'studyFill'> & { fill: number })[]
+    return rows.map(({ fill, ...row }) => ({ ...row, studyFill: fill === 1 }))
+  }
+
+  /** Only plants in neighbouring beds reach each other. */
+  function nextToEachOther(a: PlantRow, b: PlantRow): boolean {
+    const all = beds()
+    const bedA = all.findIndex((bed) => bed.id === a.bedId)
+    const bedB = all.findIndex((bed) => bed.id === b.bedId)
+    return bedA >= 0 && bedB >= 0 && Math.abs(bedA - bedB) === 1
   }
 
   function startPollination(plantA: number, plantB: number) {
     const all = plants()
     const a = all.find((row) => row.id === plantA)
     const b = all.find((row) => row.id === plantB)
-    if (!a || !b || plantA === plantB || pollinationProblem(a, b)) return
-    const open = pollinations().some((row) => (row.plantA === plantA && row.plantB === plantB) || (row.plantA === plantB && row.plantB === plantA))
-    if (open) return
+    if (!a || !b || plantA === plantB || !nextToEachOther(a, b) || pollinationProblem(a, b)) return
+    if (inPollination(plantA) || inPollination(plantB)) return
     db.prepare('INSERT INTO pollinations (plant_a, plant_b, needed, created_at) VALUES (?, ?, ?, ?)').run(plantA, plantB, pollinationCost(a.genome, b.genome), Date.now())
   }
 
-  /** Bought pollen: any flowering plant, whatever its sex, with itself. */
+  /** Bought pollen: any flowering plant in a bed, whatever its sex, by itself. */
   function startWithPollen(plantId: number) {
     const plant = plants().find((row) => row.id === plantId)
-    if (!plant || plant.growth < FLOWERING_GROWTH) return
-    if (pollinations().some((row) => row.plantA === plantId && row.plantB === null)) return
-    db.prepare('INSERT INTO pollinations (plant_a, plant_b, needed, created_at) VALUES (?, NULL, ?, ?)').run(plantId, REWARDS.pollinateSameSpecies + REWARDS.pollenCost, Date.now())
+    if (!plant || plant.location !== 'garden' || plant.growth < FLOWERING_GROWTH || plant.restLeft > 0 || pollen() < 1 || inPollination(plantId)) return
+    setMeta('pollen', String(pollen() - 1))
+    db.prepare('INSERT INTO pollinations (plant_a, plant_b, needed, created_at) VALUES (?, NULL, ?, ?)').run(plantId, REWARDS.pollinateSameVariety, Date.now())
   }
 
-  /** Fills the bar with sun. When it is full, one to four seeds land in the seed box. */
-  function feedPollination(id: number, amount: number, seedFor: () => number) {
-    const row = pollinations().find((entry) => entry.id === id)
-    if (!row) return
+  /** Puts sun from the wallet into the bar. When it is full, one to four seeds form. */
+  function payPollination(row: PollinationRow, amount: number) {
     const spend = Math.min(amount, wallet(), row.needed - row.paid)
     if (spend <= 0) return
     addToWallet(-spend)
     const paid = row.paid + spend
-    db.prepare('UPDATE pollinations SET paid = ? WHERE id = ?').run(paid, id)
+    db.prepare('UPDATE pollinations SET paid = ? WHERE id = ?').run(paid, row.id)
     if (paid < row.needed) return
     const all = plants()
     const a = all.find((plant) => plant.id === row.plantA)
     const b = row.plantB === null ? a : all.find((plant) => plant.id === row.plantB)
     if (!a || !b) return
+    const seedFor = () => Math.floor(Math.random() * 2 ** 31)
+    const help = {
+      mutation: (statsOf(a).mutation + statsOf(b).mutation) / 2,
+      crossing: (statsOf(a).crossing + statsOf(b).crossing) / 2,
+    }
     const count = 1 + (seedFor() % 4)
-    for (let i = 0; i < count; i += 1) addToNursery('seed', crossGenomes(a.genome, b.genome, seedFor()), a.id, b.id, a.courseTag)
-    db.prepare('UPDATE pollinations SET seeds = ?, done_at = ? WHERE id = ?').run(count, Date.now(), id)
+    // The first seed falls into a free bed next to the parents, if there is one. The others go to the seed box.
+    const order = beds()
+    const taken = new Set(all.map((plant) => plant.bedId))
+    const neighbour = order.find((bed, place) => !taken.has(bed.id) && [order[place - 1], order[place + 1]].some((next) => next && (next.id === a.bedId || next.id === b.bedId)))
+    for (let i = 0; i < count; i += 1) {
+      const genome = crossGenomes(a.genome, b.genome, seedFor(), help)
+      if (i === 0 && neighbour) {
+        const id = plantSeed(genome, a.courseTag, neighbour.id)
+        db.prepare("INSERT INTO plant_origin (plant_id, kind, parent_a, parent_b) VALUES (?, 'cross', ?, ?)").run(id, a.id, b.id)
+      } else {
+        addToNursery('seed', genome, a.id, b.id, a.courseTag)
+      }
+    }
+    const rest = db.prepare('UPDATE plants SET bloom_rest = ? WHERE id = ?')
+    for (const parent of a.id === b.id ? [a] : [a, b]) rest.run(REWARDS.bloomRestSun * (1 - statsOf(parent).bloom), parent.id)
+    db.prepare('UPDATE pollinations SET seeds = ?, done_at = ? WHERE id = ?').run(count, Date.now(), row.id)
+    ensureCurrentPlant(a.courseTag)
+  }
+
+  function feedPollination(id: number, amount: number) {
+    const row = pollinations().find((entry) => entry.id === id)
+    if (row) payPollination(row, amount)
+  }
+
+  const setPollinationFill = (id: number, on: boolean) => db.prepare('UPDATE pollinations SET study_fill = ? WHERE id = ?').run(on ? 1 : 0, id)
+
+  function soilStock(): Record<string, number> {
+    const rows = db.prepare('SELECT ingredient, litres FROM soil_stock').all() as { ingredient: string; litres: number }[]
+    return Object.fromEntries(rows.map((row) => [row.ingredient, row.litres]))
+  }
+
+  function buySoil(ingredientId: string, litres: number) {
+    const ingredient = ingredientById(ingredientId)
+    if (!ingredient) return
+    const price = bagPrice(ingredient, litres)
+    if (wallet() < price) return
+    addToWallet(-price)
+    db.prepare('INSERT INTO soil_stock (ingredient, litres) VALUES (?, ?) ON CONFLICT(ingredient) DO UPDATE SET litres = litres + excluded.litres').run(ingredientId, litres)
+  }
+
+  function mixes(): MixRow[] {
+    const rows = db.prepare('SELECT id, name, color, litres, stats FROM soil_mixes ORDER BY id DESC').all() as { id: number; name: string; color: string; litres: number; stats: string }[]
+    return rows.map((row) => ({ ...row, stats: JSON.parse(row.stats) as SoilStats }))
+  }
+
+  /** Whatever is poured together stays a mix. The numbers come out a little different each time. */
+  function mixSoil(recipe: Recipe) {
+    const stock = soilStock()
+    const entries = Object.entries(recipe).filter(([, litres]) => litres > 0)
+    if (entries.length === 0 || entries.some(([id, litres]) => !ingredientById(id) || (stock[id] ?? 0) < litres)) return
+    const used = Object.fromEntries(entries)
+    const take = db.prepare('UPDATE soil_stock SET litres = litres - ? WHERE ingredient = ?')
+    for (const [id, litres] of entries) take.run(litres, id)
+    db.prepare('DELETE FROM soil_stock WHERE litres <= 0').run()
+    db.prepare('INSERT INTO soil_mixes (name, color, litres, stats, recipe, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      recipeName(used),
+      recipeColor(used),
+      recipeLitres(used),
+      JSON.stringify(mixStats(used, Math.random)),
+      JSON.stringify(used),
+      Date.now(),
+    )
+  }
+
+  const discardMix = (mixId: number) => db.prepare('DELETE FROM soil_mixes WHERE id = ?').run(mixId)
+
+  /** Fresh soil for a bed. Whatever grew there stays, and feels the new soil from now on. */
+  function fillBed(bedId: number, mixId: number) {
+    const mix = mixes().find((row) => row.id === mixId)
+    if (!mix || mix.litres < BED_LITRES || !beds().some((bed) => bed.id === bedId)) return
+    const soil: Soil = { name: mix.name, color: mix.color, stats: mix.stats }
+    db.prepare('UPDATE beds SET soil = ? WHERE id = ?').run(JSON.stringify(soil), bedId)
+    if (mix.litres - BED_LITRES <= 0) discardMix(mixId)
+    else db.prepare('UPDATE soil_mixes SET litres = litres - ? WHERE id = ?').run(BED_LITRES, mixId)
+  }
+
+  /** Pots on your plants and the first pot count as yours without buying them. */
+  function ownedPots(): number[] {
+    const bought = (db.prepare('SELECT pot FROM owned_pots').all() as { pot: number }[]).map((row) => row.pot)
+    return [...new Set([0, ...bought, ...plants().map((plant) => plant.pot)])].sort((a, b) => a - b)
+  }
+
+  function buyPot(pot: number) {
+    const design = POT_DESIGNS[pot]
+    if (!design || ownedPots().includes(pot) || wallet() < design.price) return
+    addToWallet(-design.price)
+    db.prepare('INSERT INTO owned_pots (pot) VALUES (?)').run(pot)
+  }
+
+  function setPot(plantId: number, pot: number) {
+    if (ownedPots().includes(pot)) db.prepare('UPDATE plants SET pot = ? WHERE id = ?').run(pot, plantId)
+  }
+
+  function buyShears(id: string) {
+    const item = SHEARS.find((row) => row.id === id)
+    if (!item || wallet() < item.price) return
+    addToWallet(-item.price)
+    setMeta('shears', String(shears() + item.cuts))
+  }
+
+  function buyPollen() {
+    if (wallet() < REWARDS.pollenCost) return
+    addToWallet(-REWARDS.pollenCost)
+    setMeta('pollen', String(pollen() + 1))
   }
 
   return {
@@ -379,8 +609,24 @@ export function openDb(dataDir: string) {
     getMeta,
     setMeta,
     addToWallet,
-    settleGarden,
     gardenBeds,
+    beds,
+    swapBeds,
+    swapShelf,
+    shears,
+    pollen,
+    soilStock,
+    buySoil,
+    mixes,
+    mixSoil,
+    discardMix,
+    fillBed,
+    ownedPots,
+    buyPot,
+    setPot,
+    buyShears,
+    buyPollen,
+    setPollinationFill,
     nursery,
     pollinations,
     sow,

@@ -1,4 +1,4 @@
-import { bromeliadSeed, GOLD_GLAZE, POT_COLORS } from '../core/plants'
+import { bromeliadSeed, GOLD_POT } from '../core/plants'
 import { STREAK } from '../core/streak'
 import { buildWeek, DEFAULT_TASKS, OWN_TASK_REWARD, startOfWeek, weekKey, type WeekReward, type WeekState, type WeekTaskView } from '../core/week'
 import type { Db } from './db'
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS week_claims (
 export type Week = ReturnType<typeof openWeek>
 
 export function grantReward(database: Db, reward: WeekReward) {
-  const seed = reward.bromeliad ? bromeliadSeed(Math.random) : reward.gold ? POT_COLORS.indexOf(GOLD_GLAZE) : Math.floor(Math.random() * 2 ** 31)
+  const seed = reward.bromeliad ? bromeliadSeed(Math.random) : reward.gold ? GOLD_POT : Math.floor(Math.random() * 2 ** 31)
   database.addFund({ kind: reward.kind, rarity: reward.rarity, seed }, null)
 }
 

@@ -19,7 +19,18 @@ import {
   topicReward,
   type FinishesWith,
 } from './calendar'
-import { crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
+import { crossChance, crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
+import { cutLeaf, cutProblem, NO_LEAF_STATE, regrowLeaves, regrowthOf, rollNewLeaves } from './leaves'
+import { GOLD_POT, emergenceOf, growthFromSun, sproutCost, type Genome } from './plants'
+import { POT_DESIGNS } from './pots'
+import { bagPrice, ingredientById, mixStats, recipeStats, SOIL_WOBBLE } from './soil'
+import { varietiesOf, varietyById } from './varieties'
+
+function growthPastGate(genome: Genome, gate: number): number {
+  let growth = 300
+  while (emergenceOf(genome, growth) < gate) growth += 1
+  return growth
+}
 import { NO_MISTAKE, recordAnswer } from './mistakes'
 import { buildWeek, WEEK_COMPLETE, WEEK_GOALS, weekKey } from './week'
 import { dayTier, focusSun, questionSun, REWARDS, rollFund, todoSun } from './rewards'
@@ -238,7 +249,7 @@ describe('plants', () => {
     expect(makeGenome('monstera', 42, 'uncommon')).toEqual(makeGenome('monstera', 42, 'uncommon'))
   })
 
-  it('makes variegation rarer on common seeds', () => {
+  it('almost never makes a variegated plant by itself', () => {
     const count = (rarity: 'common' | 'rare') => {
       let variegated = 0
       for (let seed = 0; seed < 3000; seed += 1) {
@@ -246,7 +257,35 @@ describe('plants', () => {
       }
       return variegated
     }
-    expect(count('rare')).toBeGreaterThan(count('common') * 4)
+    expect(count('common')).toBeLessThan(15)
+    expect(count('rare')).toBeLessThan(30)
+  })
+
+  it('gives every group its real varieties, and keeps rare ones from common seeds', () => {
+    for (const species of SPECIES.filter((row) => !BROMELIADS.includes(row))) {
+      expect(varietiesOf(species.id).length).toBeGreaterThanOrEqual(5)
+      expect(varietiesOf(species.id).length).toBeLessThanOrEqual(10)
+    }
+    expect(new Set(SPECIES.map((row) => row.group)).size).toBe(10)
+    for (let seed = 0; seed < 500; seed += 1) {
+      const variety = varietyById('anthurium', makeGenome('anthurium', seed * 31, 'common').variety)
+      expect(variety.rare).toBeFalsy()
+    }
+  })
+
+  it('makes seeds slower to sprout than cuttings, and rare plants slower still', () => {
+    const plain = { ...makeGenome('pothos', 11, 'common', 'jade'), variegation: 'none' as const }
+    const rare = { ...plain, variegation: 'albo' as const, crossed: true }
+    expect(sproutCost(plain, false)).toBe(REWARDS.sproutSeedSun)
+    expect(sproutCost(plain, true)).toBeLessThan(sproutCost(plain, false))
+    expect(sproutCost(rare, false)).toBeGreaterThanOrEqual(sproutCost(plain, false) * 2)
+  })
+
+  it('spreads sun over the sprouting cost and then grows one to one', () => {
+    expect(growthFromSun(0, 50, 100)).toBeCloseTo(10)
+    expect(growthFromSun(0, 100, 100)).toBeCloseTo(SPROUT_GROWTH)
+    expect(growthFromSun(0, 130, 100)).toBeCloseTo(SPROUT_GROWTH + 30)
+    expect(growthFromSun(150, 10, 400)).toBeCloseTo(160)
   })
 
   it('reports progress towards the next stage', () => {
@@ -375,67 +414,175 @@ describe('scheduler', () => {
 })
 
 describe('breeding', () => {
-  const monstera = makeGenome('monstera', 101, 'common')
-  const pothos = makeGenome('pothos', 102, 'common')
+  const deliciosa = { ...makeGenome('monstera', 101, 'common', 'deliciosa'), variegation: 'none' as const }
+  const adansonii = { ...makeGenome('monstera', 102, 'common', 'adansonii'), variegation: 'none' as const }
+  const peru = { ...makeGenome('monstera', 103, 'common', 'karstenii'), variegation: 'none' as const }
+  const pothos = makeGenome('pothos', 104, 'common')
   const seeds = Array.from({ length: 3000 }, (_, i) => i * 13 + 5)
-  const variegated = (kind: 'marbled' | 'albo', genome = monstera) => ({ ...genome, variegation: kind })
+  const variegated = (kind: 'marbled' | 'albo', genome = deliciosa) => ({ ...genome, variegation: kind })
 
   it('makes about half of all plants female, fixed by their seed', () => {
     const share = seeds.filter((seed) => sexOf(makeGenome('monstera', seed, 'common')) === 'female').length / seeds.length
     expect(share).toBeGreaterThan(0.45)
     expect(share).toBeLessThan(0.55)
-    expect(sexOf(monstera)).toBe(sexOf(monstera))
   })
 
   it('keeps the sex of the parent in a cutting', () => {
-    for (const seed of seeds.slice(0, 50)) expect(sexOf(cuttingGenome(monstera, seed))).toBe(sexOf(monstera))
+    for (const seed of seeds.slice(0, 50)) expect(sexOf(cuttingGenome(deliciosa, seed))).toBe(sexOf(deliciosa))
   })
 
-  it('charges more the further apart two plants are', () => {
-    expect(pollinationCost(monstera, makeGenome('monstera', 9, 'common'))).toBe(REWARDS.pollinateSameSpecies)
-    expect(pollinationCost(monstera, pothos)).toBe(REWARDS.pollinateSameFamily)
-    expect(pollinationCost(monstera, makeGenome('guzmania', 9, 'rare'))).toBe(REWARDS.pollinateAcrossFamilies)
+  it('charges more for crossing two varieties', () => {
+    expect(pollinationCost(deliciosa, makeGenome('monstera', 9, 'common', 'deliciosa'))).toBe(REWARDS.pollinateSameVariety)
+    expect(pollinationCost(deliciosa, adansonii)).toBe(REWARDS.pollinateSameGroup)
   })
 
-  it('needs two flowering plants of opposite sex', () => {
-    const female = { genome: { ...monstera, sex: 'female' as const }, growth: 700 }
-    const male = { genome: { ...pothos, sex: 'male' as const }, growth: 700 }
+  it('only crosses flowering plants of one group and opposite sex', () => {
+    const female = { genome: { ...deliciosa, sex: 'female' as const }, growth: 700 }
+    const male = { genome: { ...adansonii, sex: 'male' as const }, growth: 700 }
     expect(pollinationProblem(female, male)).toBeNull()
     expect(pollinationProblem(female, female)).toContain('Both are female')
     expect(pollinationProblem(female, { ...male, growth: 699 })).toContain('flowering')
+    expect(pollinationProblem(female, { genome: { ...pothos, sex: 'male' as const }, growth: 700 })).toContain('different groups')
+    expect(pollinationProblem(female, { ...male, restLeft: 10 })).toContain('resting')
   })
 
-  it('is the same from the same seed, and takes its species from a parent', () => {
-    expect(crossGenomes(monstera, pothos, 77)).toEqual(crossGenomes(monstera, pothos, 77))
-    const species = new Set(seeds.map((seed) => crossGenomes(monstera, pothos, seed).species))
-    expect([...species].sort()).toEqual(['monstera', 'pothos'])
+  it('is the same from the same seed, and keeps the group', () => {
+    expect(crossGenomes(deliciosa, adansonii, 77)).toEqual(crossGenomes(deliciosa, adansonii, 77))
+    const varieties = new Set(seeds.map((seed) => crossGenomes(deliciosa, adansonii, seed).variety))
+    expect([...varieties].sort()).toEqual(['adansonii', 'deliciosa'])
   })
 
-  it('gives splits only to species that have them', () => {
+  it('makes a cross a lottery that the soil can improve', () => {
+    const took = (help: number) => seeds.filter((seed) => crossGenomes(deliciosa, adansonii, seed, { crossing: help }).crossed).length / seeds.length
+    expect(took(0)).toBeGreaterThan(0.2)
+    expect(took(0)).toBeLessThan(0.3)
+    expect(took(0.4)).toBeGreaterThan(0.58)
+    expect(crossChance(deliciosa, adansonii, 5)).toBe(0.92)
+  })
+
+  it('gives a failed cross only a plain plant, even from variegated parents', () => {
+    const children = seeds.map((seed) => crossGenomes(variegated('marbled'), variegated('albo', adansonii), seed))
+    const failed = children.filter((child) => !child.crossed)
+    expect(failed.length).toBeGreaterThan(1000)
+    expect(failed.every((child) => child.variegation === 'none')).toBe(true)
+    expect(children.some((child) => child.variegation !== 'none')).toBe(true)
+  })
+
+  it('gives splits only to varieties that have them', () => {
     for (const seed of seeds.slice(0, 300)) {
-      const child = crossGenomes(monstera, pothos, seed)
-      if (child.species === 'pothos') expect(child.fenestration).toBe(0)
+      const child = crossGenomes(deliciosa, peru, seed)
+      if (child.variety === 'karstenii') expect(child.fenestration).toBe(0)
       else expect(child.fenestration).toBeGreaterThan(0)
     }
   })
 
-  it('passes variegation on in sensible ratios', () => {
-    const share = (a: typeof monstera, b: typeof monstera) => seeds.filter((seed) => crossGenomes(a, b, seed).variegation !== 'none').length / seeds.length
-    expect(share(monstera, pothos)).toBeLessThan(0.08)
-    expect(share(variegated('marbled'), pothos)).toBeGreaterThan(0.28)
-    expect(share(variegated('marbled'), pothos)).toBeLessThan(0.42)
-    expect(share(variegated('marbled'), variegated('albo', pothos))).toBeGreaterThan(0.68)
-    const child = seeds.map((seed) => crossGenomes(variegated('albo'), pothos, seed)).find((genome) => genome.variegation !== 'none')!
-    expect(child.variegation).toBe('albo')
+  it('needs soil for a mutation out of plain parents', () => {
+    const share = (mutation: number) => seeds.filter((seed) => crossGenomes(deliciosa, adansonii, seed, { mutation, crossing: 0.5 }).variegation !== 'none').length / seeds.length
+    expect(share(0)).toBeLessThan(0.005)
+    expect(share(0.05)).toBeGreaterThan(share(0))
   })
 
-  it('clones with a cutting, and keeps variegation; a surprise is rare', () => {
+  it('clones with a plain cutting; a sport needs soil', () => {
     expect(cuttingGenome(variegated('albo'), 5).variegation).toBe('albo')
-    const clones = seeds.map((seed) => cuttingGenome(monstera, seed))
-    expect(clones.every((clone) => clone.species === 'monstera' && clone.hue === monstera.hue)).toBe(true)
-    const share = clones.filter((clone) => clone.variegation !== 'none').length / clones.length
-    expect(share).toBeGreaterThan(0.01)
-    expect(share).toBeLessThan(0.08)
+    const clones = seeds.map((seed) => cuttingGenome(deliciosa, seed))
+    expect(clones.every((clone) => clone.species === 'monstera' && clone.hue === deliciosa.hue)).toBe(true)
+    expect(clones.filter((clone) => clone.variegation !== 'none').length / clones.length).toBeLessThan(0.005)
+    const helped = seeds.map((seed) => cuttingGenome(deliciosa, seed, { mutation: 0.05 }))
+    expect(helped.filter((clone) => clone.variegation !== 'none').length / helped.length).toBeGreaterThan(0.03)
+  })
+
+  it('passes more variegated leaves on through a variegated leaf, in more colours', () => {
+    const child = cuttingGenome(deliciosa, 7, { leaf: 'albo' })
+    expect(child.variegation).toBe('albo')
+    expect(child.leafSpread).toBeGreaterThan(0.1)
+    const grandchild = cuttingGenome(child, 8, { leaf: 'albo' })
+    expect(grandchild.leafSpread).toBeGreaterThan(child.leafSpread!)
+    const palettes = seeds.slice(0, 200).map((seed) => cuttingGenome(child, seed, { leaf: 'albo' }).palette!.length)
+    expect(Math.max(...palettes)).toBeGreaterThan(1)
+    expect(cuttingGenome(child, 9, { leaf: 'none' }).leafSpread).toBeLessThan(child.leafSpread!)
+  })
+})
+
+describe('leaves', () => {
+  const plant = { ...makeGenome('monstera', 101, 'common', 'deliciosa'), variegation: 'none' as const }
+  const rng = () => createRng(5)
+
+  it('cuts only open leaves, a few at a time, and leaves the plant some', () => {
+    expect(cutProblem(plant, NO_LEAF_STATE, 299, 0)).toContain('growth')
+    expect(cutProblem(plant, NO_LEAF_STATE, 300, 0)).toBeNull()
+    expect(cutProblem(plant, NO_LEAF_STATE, 300, 15)).toContain('not open')
+    const cut = cutLeaf(plant, NO_LEAF_STATE, 300, 0)
+    expect(cutProblem(plant, cut, 300, 0)).toContain('regrowing')
+    const full = [1, 2].reduce((state, index) => cutLeaf(plant, state, 300, index), cut)
+    expect(cutProblem(plant, full, 300, 3)).toContain('already regrowing')
+  })
+
+  it('finishes the started leaf first, then regrows, and only then the plant grows on', () => {
+    const cut = cutLeaf(plant, NO_LEAF_STATE, 300, 0)
+    const waiting = regrowLeaves(plant, cut, 10, 300, true, 0, rng())
+    expect(waiting.left).toBe(10)
+    expect(waiting.state.regrown).toBe(0)
+    const later = growthPastGate(plant, cut.queue[0].gate)
+    const partly = regrowLeaves(plant, cut, 10, later, true, 0, rng())
+    expect(partly.left).toBe(0)
+    expect(regrowthOf(partly.state, 0)).toBeCloseTo(10 / REWARDS.leafRegrowSun)
+    const done = regrowLeaves(plant, partly.state, 50, later, true, 0, rng())
+    expect(done.state.queue).toHaveLength(0)
+    expect(done.left).toBeCloseTo(30)
+    expect(regrowthOf(done.state, 0)).toBe(1)
+  })
+
+  it('regrows in the greenhouse from studying alone', () => {
+    const cut = cutLeaf(plant, NO_LEAF_STATE, 300, 0)
+    expect(regrowLeaves(plant, cut, REWARDS.leafRegrowSun, 300, false, 0, rng()).state.queue).toHaveLength(0)
+  })
+
+  it('does not promise a variegated leaf back', () => {
+    const full = { ...plant, variegation: 'albo' as const }
+    const cut = cutLeaf(full, NO_LEAF_STATE, 300, 0)
+    const back = Array.from({ length: 300 }, (_, i) => regrowLeaves(full, cut, REWARDS.leafRegrowSun, 300, false, 0, createRng(i)).state.marks[0])
+    expect(back).toContain('none')
+    expect(back).toContain('albo')
+  })
+
+  it('gives each new leaf its colour once, by the spread of its plant', () => {
+    const spotty = { ...plant, variegation: 'albo' as const, leafSpread: 0.5, palette: ['albo' as const] }
+    const state = rollNewLeaves(spotty, NO_LEAF_STATE, 0, 700, 0, rng())
+    const kinds = Object.values(state.marks)
+    expect(kinds).toContain('none')
+    expect(kinds.some((kind) => kind !== 'none')).toBe(true)
+    expect(rollNewLeaves(spotty, state, 700, 700, 0, rng())).toBe(state)
+    const plainLeaves = Array.from({ length: 200 }, (_, i) => Object.values(rollNewLeaves(plant, NO_LEAF_STATE, 0, 700, 0, createRng(i)).marks)).flat()
+    expect(plainLeaves.filter((kind) => kind !== 'none').length).toBeLessThan(15)
+  })
+})
+
+describe('soil', () => {
+  it('fixes the kinds of effect by ingredient and wobbles only a little', () => {
+    const recipe = { humus: 5, perlite: 5 }
+    const target = recipeStats(recipe)
+    expect(target.speed).toBeCloseTo(0.25)
+    expect(target.cuttings).toBeCloseTo(0.35)
+    expect(target.mutation).toBe(0)
+    for (let seed = 0; seed < 100; seed += 1) {
+      const mix = mixStats(recipe, createRng(seed))
+      expect(mix.mutation).toBe(0)
+      expect(Math.abs(mix.speed / target.speed - 1)).toBeLessThanOrEqual(SOIL_WOBBLE)
+    }
+    expect(mixStats(recipe, createRng(1)).speed).not.toBe(mixStats(recipe, createRng(2)).speed)
+  })
+
+  it('sells only bags, the big one cheaper by the litre', () => {
+    const bark = ingredientById('bark')!
+    expect(bagPrice(bark, 3)).toBe(Infinity)
+    expect(bagPrice(bark, 20) / 20).toBeLessThan(bagPrice(bark, 5) / 5)
+  })
+
+  it('keeps the old pots where they were', () => {
+    expect(POT_DESIGNS[0].color).toBe('#2e6e7e')
+    expect(POT_DESIGNS[GOLD_POT].name).toBe('Gold glaze')
+    expect(POT_DESIGNS.length).toBeGreaterThan(30)
+    expect(new Set(POT_DESIGNS.map((pot) => pot.name)).size).toBe(POT_DESIGNS.length)
   })
 })
 

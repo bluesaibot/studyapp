@@ -726,7 +726,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 2rem 1.5rem;
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
 .bed {
@@ -815,7 +815,7 @@ input {
 .glass-shelf {
   display: flex;
   flex-wrap: wrap;
-  gap: 3rem 0;
+  gap: 5rem 0;
   align-items: flex-end;
 }
 
@@ -851,10 +851,21 @@ input {
   position: relative;
   width: 172px;
   margin-bottom: 4px;
+  overflow: visible;
 }
 
+/* Long names wrap under the pane, and the row gap above leaves room for three lines. */
 .shelf-plant.on-show span {
   margin-top: 10px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.glass-content .garden-note {
+  margin-top: 5rem;
 }
 
 .shelf-plant.on-show.selected {
@@ -1613,5 +1624,270 @@ kbd {
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Shop and soil bench: the same quiet room, with the soil as the only strong colour. */
+.world.shop .world-main,
+.world.soil .world-main {
+  background: #f4f1ea;
+}
+
+.bed.drop-target {
+  outline: 2px dashed var(--sun-deep);
+  outline-offset: 4px;
+}
+
+.bed {
+  cursor: grab;
+}
+
+.bed-soil-name {
+  display: block;
+  font-size: 0.78rem;
+  color: rgb(23 57 47 / 0.72);
+}
+
+.garden-note {
+  margin-top: 1.4rem;
+  max-width: 34rem;
+}
+
+.fill-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.bed-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgb(23 57 47 / 0.2);
+}
+
+.cut-stage {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cut-plant {
+  width: 100%;
+  overflow: visible;
+}
+
+.cut-mode [data-leaf] {
+  cursor: crosshair;
+}
+
+.cut-mode [data-leaf]:hover {
+  filter: brightness(1.22) drop-shadow(0 0 3px var(--sun-deep));
+}
+
+.pot-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.8rem;
+}
+
+.pot-chip {
+  width: 42px;
+  padding: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.pot-chip.selected {
+  border-color: var(--bottle);
+}
+
+.shop,
+.bench {
+  display: flex;
+  flex-direction: column;
+  gap: 2.2rem;
+}
+
+.shop-list,
+.mix-list,
+.tub-list,
+.soil-bars,
+.pot-shelf {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shop-list > li,
+.mix-list > li,
+.tub-list > li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgb(23 57 47 / 0.16);
+}
+
+.soil-name {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.soil-name small {
+  display: block;
+  color: rgb(23 57 47 / 0.72);
+}
+
+.soil-swatch {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.mix-list > li > div {
+  flex: 1;
+}
+
+.pot-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 1.5rem 1rem;
+  margin-top: 0.6rem;
+}
+
+.pot-shelf li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.pot-shelf svg {
+  width: 96px;
+}
+
+.pot-shelf small {
+  color: rgb(23 57 47 / 0.72);
+}
+
+.bench-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.bag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.bag {
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.45rem 0.3rem;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  background: #fff;
+  border: 1px solid rgb(23 57 47 / 0.22);
+  border-radius: 8px 8px 4px 4px;
+  cursor: grab;
+}
+
+.bag:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.bag-fill {
+  width: 100%;
+  height: 34px;
+  border-radius: 3px;
+}
+
+.pour {
+  margin-top: 0.8rem;
+}
+
+/* A tub seen from the side, its soil in layers. */
+.mix-bowl {
+  height: 230px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-align: center;
+  background: #fbfaf6;
+  border: 2px solid var(--bottle);
+  border-top-width: 6px;
+  border-radius: 6px 6px 46px 46px;
+}
+
+.mix-bowl.over {
+  background: #fff8dc;
+}
+
+.strata {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.strata i {
+  display: block;
+  min-height: 3px;
+  transition: flex-grow 240ms ease;
+}
+
+.mix-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.tub-list {
+  width: 100%;
+}
+
+.soil-bars {
+  width: 100%;
+}
+
+.soil-bars li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.1rem 0.6rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.soil-bars .progress {
+  grid-column: 1 / -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strata i {
+    transition: none;
   }
 }

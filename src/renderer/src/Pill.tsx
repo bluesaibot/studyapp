@@ -18,7 +18,7 @@ export function Pill() {
 
   return (
     <div className="pill">
-      {plant && <PlantView key={plant.id} plantId={plant.id} className="pill-plant" genome={plant.genome} growth={plant.growth} pot={plant.pot} />}
+      {plant && <PlantView key={plant.id} plantId={plant.id} className="pill-plant" genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} />}
       <div className="pill-text">
         <span className="pill-time">{time}</span>
         <span className="pill-label">{label}</span>

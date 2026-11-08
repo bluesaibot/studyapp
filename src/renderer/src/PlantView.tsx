@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { leafType, NO_LEAF_STATE, regrowthOf, type LeafState } from '../../core/leaves'
 import {
+  emergenceOf,
   fenestrationProgress,
   flowerProgress,
-  leafEmergence,
   MAX_LEAVES,
-  POT_COLORS,
   smoothstep,
   speciesById,
   SPROUT_GROWTH,
@@ -12,7 +12,10 @@ import {
   type Genome,
   type LeafShape,
   type Species,
+  type Variegation,
 } from '../../core/plants'
+import { potDesign, type PotDesign } from '../../core/pots'
+import { varietyById, type LeafPattern } from '../../core/varieties'
 import { between, createRng, type Rng } from '../../core/rng'
 
 const POT_TOP = 400
@@ -94,8 +97,6 @@ function variegationMarks(genome: Genome, rng: Rng, length: number, width: numbe
   return marks
 }
 
-type LeafPattern = 'pinnate' | 'bold' | 'painted' | 'palmate' | 'smooth'
-
 interface LeafLook {
   pattern: LeafPattern
   /** How much narrower the left half is; begonias are lopsided. */
@@ -115,6 +116,17 @@ const LEAF_LOOK: Record<string, LeafLook> = {
   begonia: { pattern: 'palmate', proportion: 1, asymmetry: 0.72, spots: true },
   calathea: { pattern: 'painted', proportion: 0.72 },
   hoya: { pattern: 'smooth', proportion: 0.74, gloss: true },
+}
+
+/** The group's leaf with whatever its variety does differently. */
+function leafLook(genome: Genome, species: Species): LeafLook {
+  return { ...(LEAF_LOOK[species.id] ?? LEAF_LOOK.pothos), ...varietyById(species.id, genome.variety).look }
+}
+
+/** Which leaf looks how: its own colour, and how far it has regrown after a cut. */
+interface LeafPlan {
+  type(index: number): Variegation
+  open(index: number): number
 }
 
 function LeafVeins({ pattern, genome, length, width }: { pattern: LeafPattern; genome: Genome; length: number; width: number }) {
@@ -231,8 +243,8 @@ interface LeafProps {
 
 function Leaf({ id, genome, species, seed, length, width, holes }: LeafProps) {
   const rng = createRng(seed)
-  const look = LEAF_LOOK[species.id] ?? LEAF_LOOK.pothos
-  const outline = leafOutline(species.shape, length, width, look.asymmetry)
+  const look = leafLook(genome, species)
+  const outline = leafOutline(varietyById(species.id, genome.variety).shape ?? species.shape, length, width, look.asymmetry)
   const tone = between(rng, -3, 3)
   const fill = `hsl(${genome.hue + tone} ${genome.saturation}% ${genome.lightness + tone}%)`
   const cut = species.id === 'monstera' && holes > 0
@@ -327,15 +339,15 @@ interface PlacedLeaf {
   length: number
 }
 
-function leafNodes(leaves: readonly PlacedLeaf[], genome: Genome, species: Species, uid: string, holes: number): ReactNode[] {
-  const look = LEAF_LOOK[species.id] ?? LEAF_LOOK.pothos
+function leafNodes(leaves: readonly PlacedLeaf[], genome: Genome, species: Species, uid: string, holes: number, plan: LeafPlan): ReactNode[] {
+  const look = leafLook(genome, species)
   return leaves
     .filter((leaf) => leaf.length >= 1)
     .map((leaf) => (
-      <g key={leaf.key} transform={`translate(${leaf.x} ${leaf.y}) rotate(${leaf.rotation})`}>
+      <g key={leaf.key} data-leaf={leaf.key} transform={`translate(${leaf.x} ${leaf.y}) rotate(${leaf.rotation})`}>
         <Leaf
           id={`${uid}-${leaf.key}`}
-          genome={genome}
+          genome={{ ...genome, variegation: plan.type(leaf.key) }}
           species={species}
           seed={genome.seed + leaf.key * 977}
           length={leaf.length}
@@ -353,9 +365,9 @@ function unfolded(emergence: number, index: number): number {
 const stemColor = (genome: Genome) => `hsl(${genome.hue} ${genome.saturation}% ${genome.lightness + 8}%)`
 
 /** Climbers: a stem works its way up a moss pole and sends leaves out to both sides. */
-function drawPole(genome: Genome, species: Species, growth: number, uid: string, maturity: number): ReactNode {
+function drawPole(genome: Genome, species: Species, growth: number, uid: string, maturity: number, plan: LeafPlan): ReactNode {
   const isMonstera = species.id === 'monstera'
-  const emergence = leafEmergence(growth)
+  const emergence = emergenceOf(genome, growth)
   const spacing = isMonstera ? 21 : 19
   const nodeY = (i: number) => POT_TOP - 26 - i * spacing
   const nodeX = (i: number) => CENTER + Math.sin(i * 1.9) * 8
@@ -368,13 +380,15 @@ function drawPole(genome: Genome, species: Species, growth: number, uid: string,
   const stemPoints: string[] = [`${CENTER} ${POT_TOP - 4}`]
 
   for (let i = 0; i < MAX_LEAVES; i += 1) {
-    const unfold = unfolded(emergence, i)
-    if (unfold <= 0) break
+    const natural = unfolded(emergence, i)
+    if (natural <= 0) break
     const rng = createRng(genome.seed + i * 101)
     const side = i % 2 === 0 ? 1 : -1
     const x = nodeX(i)
-    const y = lerp(nodeY(Math.max(0, i - 1)), nodeY(i), unfold)
+    const y = lerp(nodeY(Math.max(0, i - 1)), nodeY(i), natural)
     stemPoints.push(`${x} ${y}`)
+    const unfold = natural * plan.open(i)
+    if (unfold <= 0) continue
 
     const reach = between(rng, isMonstera ? 62 : 48, isMonstera ? 104 : 84) * (0.6 + 0.4 * maturity) * unfold
     const lift = radians(between(rng, 6, 44))
@@ -425,14 +439,14 @@ function drawPole(genome: Genome, species: Species, growth: number, uid: string,
       {roots}
       <polyline points={stemPoints.join(' ')} stroke={stemColor(genome)} strokeWidth={Math.max(3, 7 * maturity)} strokeLinecap="round" strokeLinejoin="round" fill="none" />
       {petioles}
-      {leafNodes(placed, genome, species, uid, fenestrationProgress(growth))}
+      {leafNodes(placed, genome, species, uid, fenestrationProgress(growth), plan)}
       {bloom > 0 && <Spathe species={species} x={nodeX(4) - 26} y={nodeY(4)} angle={-16} scale={bloom} />}
     </>
   )
 }
 
 /** Vines: a small crown on top, and long stems that spill over the rim and hang beside the pot. */
-function drawTrail(genome: Genome, species: Species, growth: number, uid: string, maturity: number): ReactNode {
+function drawTrail(genome: Genome, species: Species, growth: number, uid: string, maturity: number, plan: LeafPlan): ReactNode {
   const CROWN = 5
   const VINES = [
     { side: 1, out: 70 },
@@ -440,7 +454,7 @@ function drawTrail(genome: Genome, species: Species, growth: number, uid: string
     { side: 1, out: 110 },
     { side: -1, out: 118 },
   ]
-  const emergence = leafEmergence(growth) * 1.6
+  const emergence = emergenceOf(genome, growth)
   const pathAt = (vine: (typeof VINES)[number], s: number) => {
     const over = 56
     if (s < over) {
@@ -457,10 +471,12 @@ function drawTrail(genome: Genome, species: Species, growth: number, uid: string
   const vineEnd = VINES.map(() => 0)
 
   for (let i = 0; i < count; i += 1) {
-    const unfold = unfolded(emergence, i)
-    if (unfold <= 0) break
+    const natural = unfolded(emergence, i)
+    if (natural <= 0) break
+    const unfold = natural * plan.open(i)
     const rng = createRng(genome.seed + i * 101)
     if (i < CROWN) {
+      if (unfold <= 0) continue
       const side = i % 2 === 0 ? 1 : -1
       const spread = radians(((i % 3) + 1) * 15)
       const reach = between(rng, 40, 74) * (0.6 + 0.4 * maturity) * unfold
@@ -474,8 +490,9 @@ function drawTrail(genome: Genome, species: Species, growth: number, uid: string
     const vineIndex = index % VINES.length
     const vine = VINES[vineIndex]
     const row = Math.floor(index / VINES.length)
-    const s = (30 + row * 23 + (vineIndex % 2) * 6) * lerp(0.7, 1, unfold)
+    const s = (30 + row * 23 + (vineIndex % 2) * 6) * lerp(0.7, 1, natural)
     vineEnd[vineIndex] = Math.max(vineEnd[vineIndex], s)
+    if (unfold <= 0) continue
     const at = pathAt(vine, s)
     const alternate = row % 2 === 0 ? 1 : -1
     const hanging = s > 56
@@ -498,15 +515,15 @@ function drawTrail(genome: Genome, species: Species, growth: number, uid: string
     <>
       {stems}
       {vineLines}
-      {leafNodes(placed, genome, species, uid, 0)}
+      {leafNodes(placed, genome, species, uid, 0, plan)}
       {bloom > 0 && <Spathe species={species} x={CENTER + 18} y={POT_TOP - 62} angle={18} scale={bloom * 0.7} />}
     </>
   )
 }
 
 /** Twiners: a stem winds around a wire hoop, with thick leaves in pairs and umbels of flowers. */
-function drawHoop(genome: Genome, species: Species, growth: number, uid: string, maturity: number): ReactNode {
-  const emergence = leafEmergence(growth) * 1.5
+function drawHoop(genome: Genome, species: Species, growth: number, uid: string, maturity: number, plan: LeafPlan): ReactNode {
+  const emergence = emergenceOf(genome, growth)
   const total = MAX_LEAVES * 1.5
   // Both ends stand in the soil, and the hoop widens above the pot.
   const hoop = (phi: number) => ({ x: CENTER - (46 + 44 * Math.sin(phi)) * Math.cos(phi), y: POT_TOP - 8 - 300 * Math.sin(phi) })
@@ -519,8 +536,10 @@ function drawHoop(genome: Genome, species: Species, growth: number, uid: string,
   const placed: PlacedLeaf[] = []
   const count = Math.ceil(emergence)
   for (let i = 0; i < count; i += 1) {
-    const unfold = unfolded(emergence, i)
-    if (unfold <= 0) break
+    const natural = unfolded(emergence, i)
+    if (natural <= 0) break
+    const unfold = natural * plan.open(i)
+    if (unfold <= 0) continue
     const rng = createRng(genome.seed + i * 101)
     const phi = phiAt(i)
     const at = hoop(phi)
@@ -549,11 +568,11 @@ function drawHoop(genome: Genome, species: Species, growth: number, uid: string,
     <>
       <polyline points={hoopPoints} stroke="#8b8f8a" strokeWidth={3} fill="none" opacity={opacity} />
       <polyline points={winding.join(' ')} stroke={stemColor(genome)} strokeWidth={2.4} strokeLinecap="round" fill="none" />
-      {leafNodes(placed, genome, species, uid, 0)}
+      {leafNodes(placed, genome, species, uid, 0, plan)}
       {bloom > 0 &&
         [0.2, 0.42, 0.62].map((place, i) => {
           const at = hoop(place * Math.PI)
-          return <Umbel key={i} color={species.flower} x={at.x + (i % 2 === 0 ? -26 : 26)} y={at.y + 8} scale={bloom} />
+          return <Umbel key={i} color={varietyById(species.id, genome.variety).flower ?? species.flower} x={at.x + (i % 2 === 0 ? -26 : 26)} y={at.y + 8} scale={bloom} />
         })}
     </>
   )
@@ -576,15 +595,17 @@ const CLUMP_LOOK: Record<string, ClumpLook> = {
 }
 
 /** Clumps: all stalks rise straight from the soil, and the species decides how they stand. */
-function drawClump(genome: Genome, species: Species, growth: number, uid: string, maturity: number): ReactNode {
+function drawClump(genome: Genome, species: Species, growth: number, uid: string, maturity: number, plan: LeafPlan): ReactNode {
   const look = CLUMP_LOOK[species.id] ?? CLUMP_LOOK.anthurium
-  const emergence = leafEmergence(growth)
+  const emergence = emergenceOf(genome, growth)
   const stems: ReactNode[] = []
   const placed: PlacedLeaf[] = []
 
   for (let i = 0; i < MAX_LEAVES; i += 1) {
-    const unfold = unfolded(emergence, i)
-    if (unfold <= 0) break
+    const natural = unfolded(emergence, i)
+    if (natural <= 0) break
+    const unfold = natural * plan.open(i)
+    if (unfold <= 0) continue
     const rng = createRng(genome.seed + i * 101)
     const side = i % 2 === 0 ? 1 : -1
     const spread = (((i % 6) + 1) / 6) * look.spread * between(rng, 0.8, 1.05) * side
@@ -624,9 +645,9 @@ function drawClump(genome: Genome, species: Species, growth: number, uid: string
       stems.push(<path key={`f${i}`} d={`M${CENTER} ${POT_TOP - 4} Q${CENTER} ${y + 80 * bloom} ${x} ${y}`} stroke={`hsl(${genome.hue} 30% 38%)`} strokeWidth={2.6} fill="none" />)
       flowers.push(
         species.id === 'begonia' || species.id === 'calathea' ? (
-          <Cluster key={i} color={species.flower} x={x} y={y} scale={bloom} seed={genome.seed + i} />
+          <Cluster key={i} color={varietyById(species.id, genome.variety).flower ?? species.flower} x={x} y={y} scale={bloom} seed={genome.seed + i} />
         ) : (
-          <Spathe key={i} species={species} x={x} y={y} angle={between(rng, -22, 22)} scale={bloom} />
+          <Spathe key={i} species={{ ...species, flower: varietyById(species.id, genome.variety).flower ?? species.flower }} x={x} y={y} angle={between(rng, -22, 22)} scale={bloom} />
         ),
       )
     }
@@ -635,7 +656,7 @@ function drawClump(genome: Genome, species: Species, growth: number, uid: string
   return (
     <>
       {stems}
-      {leafNodes(placed, genome, species, uid, 0)}
+      {leafNodes(placed, genome, species, uid, 0, plan)}
       {flowers}
     </>
   )
@@ -659,6 +680,7 @@ const ROSETTE_LOOK: Record<string, RosetteLook> = {
   vriesea: { length: [128, 162], width: 14, lean: 9, maxLean: 72, bands: '#1f3a2a', accents: ['#e8452c', '#f0b21f'] },
   aechmea: { length: [120, 152], width: 18, lean: 8, maxLean: 62, bands: '#dfe7e3', accents: ['#ec5f9c', '#e8467f'] },
   tillandsia: { length: [84, 118], width: 6, lean: 10, maxLean: 92, accents: ['#ef6aa6', '#e3508e'] },
+  phalaenopsis: { length: [92, 122], width: 25, lean: 16, maxLean: 88, accents: ['#f6f2ec'] },
 }
 
 /** A strap leaf arcing out of the rosette's centre, drawn in plant coordinates. */
@@ -746,6 +768,35 @@ function Inflorescence({ species, genome, growth, accent }: { species: Species; 
     )
   }
 
+  if (species.id === 'phalaenopsis') {
+    // Moth flowers along a thin arching spike that leans over to one side.
+    const spike = (t: number) => ({ x: CENTER + 92 * t * t * bloom, y: base - 262 * bloom * (t - 0.32 * t * t) })
+    const points = Array.from({ length: 21 }, (_, i) => {
+      const at = spike(i / 20)
+      return `${at.x} ${at.y}`
+    }).join(' ')
+    const lip = '#c9476f'
+    return (
+      <g>
+        <polyline points={points} stroke="#6f7d4a" strokeWidth={3} fill="none" strokeLinecap="round" />
+        {[0.42, 0.55, 0.67, 0.78, 0.88, 0.97].map((t, i) => {
+          const at = spike(t)
+          const scale = bloom * (1 - i * 0.08)
+          return (
+            <g key={t} transform={`translate(${at.x + (i % 2 === 0 ? -8 : 8)} ${at.y + 8}) scale(${scale})`}>
+              <ellipse cx={-14} cy={-2} rx={15} ry={12} fill={accent} stroke="#00000018" />
+              <ellipse cx={14} cy={-2} rx={15} ry={12} fill={accent} stroke="#00000018" />
+              <ellipse cy={-13} rx={7} ry={11} fill={accent} stroke="#00000018" />
+              <ellipse cx={-8} cy={10} rx={6} ry={9} fill={accent} transform="rotate(26 -8 10)" stroke="#00000018" />
+              <ellipse cx={8} cy={10} rx={6} ry={9} fill={accent} transform="rotate(-26 8 10)" stroke="#00000018" />
+              <path d="M-5 2 Q0 15 5 2 Q0 -3 -5 2 Z" fill={lip} />
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
   // Neoregelia flowers low in the water-filled centre of the rosette.
   return (
     <g>
@@ -757,21 +808,24 @@ function Inflorescence({ species, genome, growth, accent }: { species: Species; 
 }
 
 /** Rosettes: bromeliads grow new leaves from the centre, pushing the older ones outward. */
-function drawRosette(genome: Genome, species: Species, growth: number, uid: string, maturity: number): ReactNode {
+function drawRosette(genome: Genome, species: Species, growth: number, uid: string, maturity: number, plan: LeafPlan): ReactNode {
   const look = ROSETTE_LOOK[species.id] ?? ROSETTE_LOOK.guzmania
   const pick = (colors: readonly string[]) => colors[genome.seed % colors.length]
-  const accent = pick(look.accents)
+  const accent = varietyById(species.id, genome.variety).flower ?? pick(look.accents)
   const blushColor = look.blush ? pick(look.blush) : null
   const blush = look.blush ? smoothstep((growth - 60) / 240) : 0
-  const emergence = leafEmergence(growth) * (species.id === 'tillandsia' ? 1.9 : 1.35)
+  const emergence = emergenceOf(genome, growth)
   const count = Math.ceil(emergence)
   const green = `hsl(${genome.hue} ${genome.saturation}% ${genome.lightness + 4}%)`
-  const variegated = genome.variegation === 'none' ? null : VARIEGATION_COLOR[genome.variegation]
 
   const drawn: { order: number; node: ReactNode }[] = []
   for (let i = 0; i < count; i += 1) {
-    const unfold = unfolded(emergence, i)
-    if (unfold <= 0) break
+    const natural = unfolded(emergence, i)
+    if (natural <= 0) break
+    const unfold = natural * plan.open(i)
+    if (unfold <= 0) continue
+    const leafKind = plan.type(i)
+    const variegated = leafKind === 'none' ? null : VARIEGATION_COLOR[leafKind]
     const rng = createRng(genome.seed + i * 101)
     const age = emergence - i
     const side = i % 2 === 0 ? 1 : -1
@@ -802,7 +856,7 @@ function drawRosette(genome: Genome, species: Species, growth: number, uid: stri
       // Leaves in the back are drawn first, and the front leaves overlap the centre.
       order: side * (age > 2.5 ? 1 : 0) + i * 0.01,
       node: (
-        <g key={i}>
+        <g key={i} data-leaf={i}>
           <defs>
             <clipPath id={`${id}-clip`}>
               <path d={path} />
@@ -890,13 +944,84 @@ function useShownGrowth(plantId: number | undefined, growth: number) {
   return { shown, spurting }
 }
 
-export function Pot({ color }: { color: string }) {
+/** The outline of each pot, under a rim at about y 392 with the soil on top. */
+const POT_BODY: Record<PotDesign['shape'], string> = {
+  classic: 'M144 402 L156 490 Q157 496 164 496 L236 496 Q243 496 244 490 L256 402 Z',
+  cylinder: 'M146 398 L146 488 Q146 496 154 496 L246 496 Q254 496 254 488 L254 398 Z',
+  bowl: 'M136 398 Q138 470 172 490 Q178 496 188 496 L212 496 Q222 496 228 490 Q262 470 264 398 Z',
+  tall: 'M150 398 L160 490 Q161 496 168 496 L232 496 Q239 496 240 490 L250 398 Z',
+  footed: 'M140 398 Q142 452 174 470 L170 490 Q170 496 176 496 L224 496 Q230 496 230 490 L226 470 Q258 452 260 398 Z',
+  ribbed: 'M142 398 L152 488 Q153 496 162 496 L238 496 Q247 496 248 488 L258 398 Z',
+  scalloped: 'M142 398 L152 488 Q153 496 162 496 L238 496 Q247 496 248 488 L258 398 Z',
+  checker: 'M146 398 L146 488 Q146 496 154 496 L246 496 Q254 496 254 488 L254 398 Z',
+  wave: 'M142 398 Q144 470 164 490 Q170 496 178 496 L222 496 Q230 496 236 490 Q256 470 258 398 Z',
+  dotted: 'M144 398 L154 490 Q155 496 163 496 L237 496 Q245 496 246 490 L256 398 Z',
+}
+
+function PotPattern({ design, clip }: { design: PotDesign; clip: string }) {
+  const accent = design.accent ?? '#fff'
+  if (design.shape === 'ribbed') {
+    return (
+      <g clipPath={`url(#${clip})`} stroke="#000" strokeOpacity={0.09} strokeWidth={2.5}>
+        {Array.from({ length: 11 }, (_, i) => (
+          <line key={i} x1={150 + i * 10} y1={398} x2={156 + i * 8.8} y2={496} />
+        ))}
+      </g>
+    )
+  }
+  if (design.shape === 'checker') {
+    return (
+      <g clipPath={`url(#${clip})`} fill={accent}>
+        {Array.from({ length: 36 }, (_, i) =>
+          (i + Math.floor(i / 6)) % 2 === 0 ? <rect key={i} x={146 + (i % 6) * 18} y={400 + Math.floor(i / 6) * 16} width={18} height={16} /> : null,
+        )}
+      </g>
+    )
+  }
+  if (design.shape === 'wave') {
+    return (
+      <g clipPath={`url(#${clip})`} fill="none" stroke={accent} strokeWidth={5} strokeLinecap="round">
+        {[424, 450, 476].map((y) => (
+          <path key={y} d={`M130 ${y} q15 -12 30 0 t30 0 t30 0 t30 0 t30 0 t30 0`} />
+        ))}
+      </g>
+    )
+  }
+  if (design.shape === 'dotted') {
+    return (
+      <g clipPath={`url(#${clip})`} fill={accent}>
+        {Array.from({ length: 30 }, (_, i) => (
+          <circle key={i} cx={150 + (i % 6) * 20 + (Math.floor(i / 6) % 2) * 10} cy={412 + Math.floor(i / 6) * 19} r={4} />
+        ))}
+      </g>
+    )
+  }
+  return null
+}
+
+export function Pot({ design }: { design: PotDesign }) {
+  const clip = useMemo(() => `pot${Math.random().toString(36).slice(2, 9)}`, [])
+  const body = POT_BODY[design.shape]
   return (
     <g>
-      <path d="M144 402 L156 490 Q157 496 164 496 L236 496 Q243 496 244 490 L256 402 Z" fill={color} />
-      <path d="M156 410 L166 490 L178 490 L170 410 Z" fill="#fff" opacity={0.14} />
-      <rect x={138} y={392} width={124} height={20} rx={5} fill={color} />
-      <rect x={138} y={392} width={124} height={6} rx={3} fill="#fff" opacity={0.16} />
+      <defs>
+        <clipPath id={clip}>
+          <path d={body} />
+        </clipPath>
+      </defs>
+      <path d={body} fill={design.color} />
+      <PotPattern design={design} clip={clip} />
+      <g clipPath={`url(#${clip})`}>
+        <path d={body} fill="#000" opacity={0.05} transform="translate(70 0)" />
+      </g>
+      {design.shape === 'scalloped' ? (
+        <path d="M134 396 Q134 390 140 390 L260 390 Q266 390 266 396 q-11 22 -22 0 q-11 22 -22 0 q-11 22 -22 0 q-11 22 -22 0 q-11 22 -22 0 q-11 22 -22 0 Z" fill={design.color} stroke="#00000014" />
+      ) : (
+        <>
+          <rect x={138} y={392} width={124} height={20} rx={5} fill={design.color} />
+          <rect x={138} y={392} width={124} height={6} rx={3} fill="#fff" opacity={0.2} />
+        </>
+      )}
       <ellipse cx={CENTER} cy={393} rx={55} ry={5} fill="#2b2118" />
     </g>
   )
@@ -904,12 +1029,13 @@ export function Pot({ color }: { color: string }) {
 
 const DRAW_FORM = { pole: drawPole, trail: drawTrail, hoop: drawHoop, clump: drawClump, rosette: drawRosette } as const
 
-function drawFoliage(genome: Genome, species: Species, growth: number, uid: string): ReactNode {
+function drawFoliage(genome: Genome, species: Species, growth: number, uid: string, leaves: LeafState): ReactNode {
+  const plan: LeafPlan = { type: (index) => leafType(genome, leaves, index), open: (index) => smoothstep(regrowthOf(leaves, index)) }
   const maturity = 0.32 + 0.68 * Math.min(1, growth / FULL_SIZE_GROWTH)
   const shootFade = 1 - smoothstep((growth - SPROUT_GROWTH) / 10)
   return (
     <>
-      {growth >= SPROUT_GROWTH && DRAW_FORM[species.form](genome, species, growth, uid, maturity)}
+      {growth >= SPROUT_GROWTH && DRAW_FORM[species.form](genome, species, growth, uid, maturity, plan)}
       {shootFade > 0 && (
         <g opacity={shootFade}>
           <path d={`M${CENTER} 392 Q${CENTER - 2} ${392 - growth * 1.4} ${CENTER + 4} ${386 - growth * 1.8}`} stroke="#6d8f3e" strokeWidth={3} fill="none" strokeLinecap="round" />
@@ -921,14 +1047,15 @@ function drawFoliage(genome: Genome, species: Species, growth: number, uid: stri
 }
 
 /** The plant's growth stage and the way to the next one. Compact fits into tight bars. */
-export function PlantStage({ growth, compact = false }: { growth: number; compact?: boolean }) {
+export function PlantStage({ growth, compact = false, sproutSun }: { growth: number; compact?: boolean; sproutSun?: number }) {
   const { stage, next, goal, share } = stageProgress(growth)
+  const sprouting = sproutSun !== undefined && growth < SPROUT_GROWTH
   const percent = Math.floor(share * 100)
   return (
     <div className={`plant-stage${compact ? ' compact' : ''}`}>
       <p>
         <strong>{stage}</strong>
-        {!compact && (next ? `, ${Math.floor(growth)} of ${goal} to ${next}` : ', fully grown')}
+        {!compact && (sprouting ? `, ${Math.floor((growth / SPROUT_GROWTH) * sproutSun)} of ${Math.round(sproutSun)} ☀ to ${next}` : next ? `, ${Math.floor(growth)} of ${goal} to ${next}` : ', fully grown')}
       </p>
       {next && (
         <div className="progress" role="progressbar" aria-label={`Progress to ${next}`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
@@ -949,19 +1076,35 @@ interface PlantViewProps {
   plantId?: number
   /** Planted in a bed, so no pot and nothing below the soil line. */
   inBed?: boolean
+  leaves?: LeafState
+  /** Makes each leaf clickable, for cutting. */
+  onLeaf?: (index: number) => void
 }
 
-export function PlantView({ genome, growth, pot = 0, className, title, plantId, inBed = false }: PlantViewProps) {
+export function PlantView({ genome, growth, pot = 0, className, title, plantId, inBed = false, leaves = NO_LEAF_STATE, onLeaf }: PlantViewProps) {
   const uid = useMemo(() => `p${Math.random().toString(36).slice(2, 9)}`, [])
   const species = speciesById(genome.species)
   const { shown, spurting } = useShownGrowth(plantId, growth)
   // The session broadcasts every second; the drawing is only rebuilt when the shown growth moves.
-  const foliage = useMemo(() => drawFoliage(genome, species, shown, uid), [genome, species, shown, uid])
+  const leafKey = JSON.stringify(leaves)
+  const foliage = useMemo(() => drawFoliage(genome, species, shown, uid, leaves), [genome, species, shown, uid, leafKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <svg className={className} viewBox={inBed ? '0 0 400 400' : '0 0 400 500'} role="img" aria-label={title ?? species.name}>
+    <svg
+      className={`${className ?? ''}${onLeaf ? ' cut-mode' : ''}`}
+      viewBox={inBed ? '0 0 400 400' : '0 0 400 500'}
+      role="img"
+      aria-label={title ?? species.name}
+      onClick={
+        onLeaf &&
+        ((event) => {
+          const leaf = (event.target as Element).closest('[data-leaf]')
+          if (leaf) onLeaf(Number(leaf.getAttribute('data-leaf')))
+        })
+      }
+    >
       <g className={`foliage${spurting ? ' spurt' : ''}`}>{foliage}</g>
-      {!inBed && <Pot color={POT_COLORS[pot % POT_COLORS.length]} />}
+      {!inBed && <Pot design={potDesign(pot)} />}
     </svg>
   )
 }

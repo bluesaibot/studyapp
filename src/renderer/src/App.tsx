@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { clockTime, courseOver } from '../../core/calendar'
-import { POT_COLORS, speciesById, stageIndex, STAGES } from '../../core/plants'
+import { speciesById, stageIndex, STAGES } from '../../core/plants'
+import { POT_DESIGNS } from '../../core/pots'
 import { localDate } from '../../core/streak'
 import type { SessionState } from '../../core/session'
 import type { PlantRow, Snapshot } from '../../shared/api'
@@ -46,10 +47,10 @@ function ShelfPlant({ snapshot }: { snapshot: Snapshot }) {
   return (
     <div className="stage-plant">
       {plant ? (
-        <PlantView key={plant.id} plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} />
+        <PlantView key={plant.id} plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} />
       ) : (
         <svg viewBox="0 0 400 500" role="img" aria-label="Empty pot, your first seed goes in when you first study">
-          <Pot color={POT_COLORS[0]} />
+          <Pot design={POT_DESIGNS[0]} />
         </svg>
       )}
       {plant && (
