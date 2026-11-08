@@ -3,6 +3,9 @@
 Personal macOS study app with a plant game. Runs locally; all data lives in
 `~/Library/Application Support/StudyApp/`.
 
+Every launch keeps a copy of that data in its `backups/` folder (the newest 30). Tests and the
+flow script only ever use a throwaway data folder.
+
 The UI is English. All exam content (questions, cards, answers, AI feedback) is German.
 
 ```

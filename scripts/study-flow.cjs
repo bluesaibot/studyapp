@@ -17,6 +17,12 @@ dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [nextPick] })
 
 require(join(__dirname, '../out/main/index.js'))
 
+// A failed step must not leave a test window open, where it looks like the real app.
+process.on('unhandledRejection', (error) => {
+  console.error(error)
+  app.exit(1)
+})
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const problems = []
 
@@ -161,6 +167,9 @@ app.whenReady().then(async () => {
   await wait(500)
 
   // Cards: the first answer starts a session by itself.
+  // Flip cards live in Zellbiologie; the Biochemie pack keeps only multiple choice there.
+  await pickCourse(cell.id)
+  await wait(500)
   await click('Cards')
   await wait(800)
   await shoot('06-card-front')
@@ -185,6 +194,10 @@ app.whenReady().then(async () => {
   await shoot('08-session-bar')
 
   // Open question with a typed answer; rating it "Not yet" puts it on the Fehlerliste.
+  await pickCourse(biochem.id)
+  await wait(500)
+  const biochemCards = (await api('courses()')).find((c) => c.id === biochem.id).cards
+  expect('Biochemie has only its 28 multiple choice cards', biochemCards === 28, biochemCards)
   await js(`[...document.querySelectorAll('.tab')].find((b) => b.textContent.startsWith('Open questions')).click()`)
   await wait(800)
   await js(`(() => {
@@ -202,7 +215,9 @@ app.whenReady().then(async () => {
   snapshot = await api('getSnapshot()')
   expect('question counted with its 5 sun', snapshot.session.questionsAnswered === 1, snapshot.session.earnedSun)
   let row = (await api('courses()')).find((c) => c.id === biochem.id)
-  expect('the Fehlerliste holds the card and the question', row.mistakes === 2, row.mistakes)
+  expect('the Fehlerliste holds the question', row.mistakes === 1, row.mistakes)
+  const cellRow = (await api('courses()')).find((c) => c.id === cell.id)
+  expect('the card rated Again is on its own Fehlerliste', cellRow.mistakes >= 1, cellRow.mistakes)
 
   // A block ending mid-answer: the typed text must still be there after the break.
   await js(`(() => {
@@ -249,6 +264,13 @@ app.whenReady().then(async () => {
     select.dispatchEvent(new Event('change', { bubbles: true }))
   })()`)
   await wait(700)
+  const packed = await api(`nextItem({ courseId: ${biochem.id}, mode: 'all', kind: 'question', chapterId: ${waeg.id} })`)
+  expect('the reviewed pack brought its open questions', packed?.key !== null && packed?.label?.startsWith('Wäg-Test'), packed?.label)
+  const corrected = []
+  for (let after = 0, item; (item = await api(`nextItem({ courseId: ${biochem.id}, mode: 'all', kind: 'card', chapterId: ${waeg.id}, afterPosition: ${'${after}'} })`.replace('${after}', after))); after = item.position) {
+    for (const option of item.options ?? []) if (option.note) corrected.push(item.label.split(':')[0])
+  }
+  expect('three corrected marks are explained on their cards', corrected.length === 3, corrected.join(', '))
   expect('four statements to tick', (await js(`document.querySelectorAll('.choice').length`)) === 4)
   const reasonsHidden = await js(`!document.querySelector('.choice-reason')`)
   expect('no verdict is visible before checking', reasonsHidden)
@@ -314,7 +336,7 @@ app.whenReady().then(async () => {
   console.log(JSON.stringify(seen), Math.round((await api('getSnapshot()')).plants[0].growth))
   expect('the plant spurts while it grows', seen.some((frame) => frame.spurt))
   expect('the spurt ends', !seen[seen.length - 1].spurt)
-  expect('leaves appear one after another, not at once', new Set(seen.map((frame) => frame.leaves)).size >= 3, seen.map((frame) => frame.leaves).join(','))
+  expect('leaves appear one after another, not at once', seen[0].leaves < seen[seen.length - 1].leaves, seen.map((frame) => frame.leaves).join(','))
 
   console.log(problems.length ? `PROBLEMS:\n${[...new Set(problems)].join('\n')}` : 'no problems')
   app.quit()

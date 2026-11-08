@@ -7,6 +7,7 @@ import { createScheduler } from '../core/scheduler'
 import { localDate } from '../core/streak'
 import { API_METHODS, SNAPSHOT_CHANNEL, type Snapshot } from '../shared/api'
 import { MEDIA_SCHEME } from '../shared/media'
+import { backupOnLaunch } from './backup'
 import { Controller } from './controller'
 import { openDb } from './db'
 import { importLernskript } from './importer'
@@ -111,6 +112,7 @@ function broadcast(snapshot: Snapshot) {
 app.whenReady().then(async () => {
   serveMedia()
   const db = openDb(dataDir)
+  await backupOnLaunch(db, dataDir).catch((error: unknown) => console.error('Backup failed', error))
   const study = openStudy(db, await createScheduler(), () => localDate(new Date()))
   const controller = new Controller(
     db,

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { basename, dirname, join, normalize, resolve, sep } from 'node:path'
-import { parseLernskript, sortSourceNames, type SourceFile } from '../core/qmd'
+import { applyStudyPack, parseLernskript, sortSourceNames, type ParsedCourse, type SourceFile, type StudyPack } from '../core/qmd'
 import type { ImportReport } from '../shared/study'
 import type { Study } from './study'
 
@@ -93,9 +93,21 @@ function copyImages(images: string[], sourceFolder: string, mediaFolder: string)
   return { copied: copied + found, missing: unresolved.length - found }
 }
 
+/** A studypack.json next to the Lernskript holds reviewed items that take over from the parsed ones. */
+function withStudyPack(course: ParsedCourse, folder: string): ParsedCourse {
+  const path = [folder, dirname(folder)].map((candidate) => join(candidate, 'studypack.json')).find((candidate) => existsSync(candidate))
+  if (!path) return course
+  try {
+    return applyStudyPack(course, JSON.parse(readFileSync(path, 'utf8')) as StudyPack)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return { ...course, warnings: [...course.warnings, `studypack.json could not be read: ${reason}`] }
+  }
+}
+
 export function importLernskript(path: string, study: Study, mediaRoot: string): ImportReport {
   const { folder, files } = findSources(path)
-  const parsed = parseLernskript(files)
+  const parsed = withStudyPack(parseLernskript(files), folder)
   // Named after the course folder, not a generic "Lernskript" or "quarto_lernskript".
   const courseFolder = folder.split(sep).reverse().find((part) => !/lernskript/i.test(part)) ?? basename(folder)
   const fallbackName = courseFolder.replace(/[_-]+/g, ' ').trim()

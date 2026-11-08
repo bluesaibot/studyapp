@@ -96,6 +96,7 @@ function ChoiceList({ options, picked, toggle, revealed, courseId }: {
                     <strong>{option.correct ? 'Richtig' : 'Falsch'}</strong>
                     {option.flag && ` ${FLAG_NOTE[option.flag]}`}
                     <Prose markdown={option.reason} courseId={courseId} />
+                    {option.note && <em className="choice-note">{option.note}</em>}
                   </span>
                 )}
               </span>

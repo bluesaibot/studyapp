@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseLernskript, sortSourceNames, type ParsedCourse } from './qmd'
+import { applyStudyPack, parseLernskript, sortSourceNames, type ParsedCourse, type StudyPack } from './qmd'
 
 const uni = join(homedir(), 'Desktop/uni')
 const singleFile = (path: string) => [{ name: path, text: readFileSync(join(uni, path), 'utf8') }]
@@ -123,6 +123,48 @@ Siehe Kap. [-@sec-eins] und ![Bild](fig/a.png){width=50%}
   })
 })
 
+describe('applyStudyPack', () => {
+  const table = '| Aussage | Urteil | Begründung |\n|:--|:--|:--|\n| a | **R** | weil |\n'
+  const course = parseLernskript([
+    { name: 'a.qmd', text: `# Test\n\n## Frage 1: X\n\n*Alt?*\n\n${table}\n## Häufige Fallen\n\n- **Falle:** bleibt.\n` },
+  ])
+  const pack: StudyPack = {
+    version: 1,
+    title: 'Pack',
+    chapter: 'Test',
+    replaceSources: ['auswahl'],
+    chapterNote: 'Geprüft.',
+    items: [
+      { key: 'auswahl:1', kind: 'card', source: 'auswahl', label: null, front: 'Neu?', back: 'b', times: 1, status: null, options: [{ text: 'n', correct: false, reason: 'r', flag: null, note: 'korrigiert' }] },
+      { key: 'offen:1', kind: 'question', source: 'altfrage', label: null, front: 'Offen?', back: 'Antwort', times: 1, status: null },
+    ],
+  }
+
+  it('replaces the named source, keeps the rest and adds the note above the text', () => {
+    const merged = applyStudyPack(course, pack).chapters[0]
+    expect(merged.items.map((item) => item.front)).toEqual(['Neu?', 'Offen?', 'Falle'])
+    expect(merged.items[0].options![0].note).toBe('korrigiert')
+    expect(merged.body.startsWith(':::')).toBe(true)
+  })
+
+  it('drops whole sources from the course, but never the pack items themselves', () => {
+    const merged = applyStudyPack(course, { ...pack, dropSources: ['falle', 'altfrage'] }).chapters[0]
+    expect(merged.items.map((item) => item.front)).toEqual(['Neu?', 'Offen?'])
+  })
+
+  it('keeps the same key, so progress survives the change', () => {
+    expect(allItems(course).map((item) => item.key)).toContain('auswahl:1')
+    expect(allItems(applyStudyPack(course, pack)).map((item) => item.key)).toContain('auswahl:1')
+  })
+
+  it('leaves the course alone and warns when the pack is broken', () => {
+    const broken = applyStudyPack(course, { ...pack, items: [{ ...pack.items[0], front: '' }] })
+    expect(broken.chapters[0].items.map((item) => item.front)[0]).toBe('*Alt?*')
+    expect(broken.warnings.join()).toContain('studypack.json was not used')
+    expect(applyStudyPack(course, { ...pack, chapter: 'Fehlt' }).warnings.join()).toContain('Fehlt')
+  })
+})
+
 // These read the real Lernskripte, and are skipped on a machine without them.
 describe.skipIf(!existsSync(uni))('parseLernskript with real Lernskripte', () => {
   it('Zellbiologie: single file, A39 with correction, S2.1 answered', () => {
@@ -174,6 +216,17 @@ describe.skipIf(!existsSync(uni))('parseLernskript with real Lernskripte', () =>
     expect(first.options![1]).toMatchObject({ correct: false, flag: null })
     expect(first.options![2].flag).toBe('unsure')
     expect(first.options![1].reason).toContain('Halbsättigung')
+
+    const packPath = join(uni, 'biochemische_-bungen_seminar/Lernskript/studypack.json')
+    if (existsSync(packPath)) {
+      const merged = allItems(applyStudyPack(course, JSON.parse(readFileSync(packPath, 'utf8')) as StudyPack))
+      const packed = merged.filter((item) => item.source === 'auswahl')
+      expect(packed).toHaveLength(28)
+      expect(packed.flatMap((item) => item.options!)).toHaveLength(112)
+      expect(packed.flatMap((item) => item.options!).filter((option) => option.note)).toHaveLength(3)
+      expect(merged.filter((item) => item.key.startsWith('waeg-offen:'))).toHaveLength(4)
+      expect(merged.filter((item) => item.kind === 'card' && item.source !== 'auswahl')).toHaveLength(0)
+    }
 
     // Frage 33 has no answer text in the Lernskript, so it is reported rather than shown blank.
     expect(items.filter((item) => item.key.startsWith('altfrage:Frage'))).toHaveLength(34)

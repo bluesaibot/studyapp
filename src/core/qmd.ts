@@ -11,6 +11,8 @@ export interface ItemOption {
   reason: string
   /** Set when the Lernskript marks the verdict as unsure or not from the Skript. */
   flag: 'unsure' | 'not-in-skript' | null
+  /** Why this verdict differs from the source, for example a corrected past-exam key. */
+  note?: string
 }
 
 export interface ParsedItem {
@@ -473,6 +475,56 @@ export function parseLernskript(files: readonly SourceFile[]): ParsedCourse {
     ...chapters.filter((chapter) => /^Anhang/i.test(chapter.title)),
   ]
   return { title, chapters: inReadingOrder, images: [...images], warnings }
+}
+
+/** Reviewed items that sit next to a Lernskript and take over from what was parsed out of it. */
+export interface StudyPack {
+  version: 1
+  title: string
+  /** Start of the title of the chapter these items belong to. */
+  chapter: string
+  /** Parsed items of this source are dropped from that chapter. */
+  replaceSources: ItemSource[]
+  /** Parsed items of these sources are dropped from the whole course. */
+  dropSources?: ItemSource[]
+  /** Shown above the chapter in the reader, where its text and the items disagree. */
+  chapterNote?: string
+  items: ParsedItem[]
+}
+
+function checkStudyPack(pack: StudyPack): string | null {
+  if (pack.version !== 1) return 'unknown version'
+  if (typeof pack.chapter !== 'string' || !Array.isArray(pack.items)) return 'chapter or items missing'
+  for (const item of pack.items) {
+    if (!item.key || !item.front || !['card', 'question'].includes(item.kind)) return `invalid item ${item.key ?? ''}`
+    if (!item.back && !item.options) return `${item.key} has no answer`
+    if (item.options?.some((option) => !option.text || typeof option.correct !== 'boolean')) return `${item.key} has an invalid option`
+  }
+  return null
+}
+
+/** Merges a study pack in. A broken pack leaves the course as parsed and says why. */
+export function applyStudyPack(course: ParsedCourse, pack: StudyPack): ParsedCourse {
+  const problem = checkStudyPack(pack)
+  const target = problem ? undefined : course.chapters.find((chapter) => chapter.title.startsWith(pack.chapter))
+  if (!target) {
+    const reason = problem ?? `no chapter called "${pack.chapter}"`
+    return { ...course, warnings: [...course.warnings, `studypack.json was not used: ${reason}.`] }
+  }
+  const packKeys = new Set(pack.items.map((item) => item.key))
+  const note = pack.chapterNote ? `::: {.callout-note title="Geprüfte Karten"}\n${pack.chapterNote}\n:::\n\n` : ''
+  return {
+    ...course,
+    chapters: course.chapters.map((chapter) => {
+      const kept = chapter.items.filter((item) => !packKeys.has(item.key) && !pack.dropSources?.includes(item.source))
+      if (chapter !== target) return { ...chapter, items: kept }
+      return {
+        ...chapter,
+        body: note + chapter.body,
+        items: [...pack.items, ...kept.filter((item) => !pack.replaceSources.includes(item.source))],
+      }
+    }),
+  }
 }
 
 /** The order files are read in: numeric prefix first, so 100_kap12 follows 97_kap11. */
