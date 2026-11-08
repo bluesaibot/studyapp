@@ -91,6 +91,9 @@ export function Library({ courses, refresh, open, close }: LibraryProps) {
               <button className="button" onClick={() => open(course.id, 'questions')}>
                 Open questions ({course.questionsReady} ready)
               </button>
+              <button className="button" onClick={() => open(course.id, 'allQuestions')}>
+                All open questions ({course.questions})
+              </button>
               {course.mistakes > 0 && (
                 <button className="button" onClick={() => open(course.id, 'mistakes')}>
                   Fehlerliste ({course.mistakes})

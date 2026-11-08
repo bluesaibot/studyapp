@@ -265,6 +265,9 @@ function SessionScreen({ snapshot, session, course, openStudy, openLibrary }: Se
             <button className="button quiet" onClick={() => openStudy('questions')}>
               Open questions ({course.questionsReady} ready)
             </button>
+            <button className="button quiet" onClick={() => openStudy('allQuestions')}>
+              All open questions ({course.questions})
+            </button>
             <button className="button quiet" onClick={() => openStudy('read')}>
               Read Lernskript
             </button>

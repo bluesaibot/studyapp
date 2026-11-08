@@ -8,7 +8,7 @@ import { PlantView } from './PlantView'
 import { Prose } from './Prose'
 import { clock, sun } from './useSnapshot'
 
-export type StudyTab = 'cards' | 'all' | 'questions' | 'mistakes' | 'easy' | 'read'
+export type StudyTab = 'cards' | 'all' | 'questions' | 'allQuestions' | 'mistakes' | 'easy' | 'read'
 
 export interface StudyPlace {
   courseId: number
@@ -137,7 +137,7 @@ function Deck({ courseId, mode, kind, chapterId, ensureSession, answered }: Deck
   }
   const isQuestion = kind === 'question' || item?.kind === 'question'
   const easyDone = mode === 'easy' && done >= EASY_DECK_SIZE
-  const cursorKey = `studyapp.all.${courseId}.${chapterId ?? 'whole'}`
+  const cursorKey = `studyapp.all.${kind === 'question' ? 'questions.' : ''}${courseId}.${chapterId ?? 'whole'}`
 
   useEffect(() => {
     if (easyDone) {
@@ -217,7 +217,7 @@ function Deck({ courseId, mode, kind, chapterId, ensureSession, answered }: Deck
     return (
       <div className="deck">
         <p className="deck-front">
-          {mode === 'all' ? 'That was every card.' : mode === 'easy' ? (easyDone ? 'That was ten. Nicely kept going.' : 'No easy cards yet. Practise a few first and they will show up here.')
+          {mode === 'all' ? (kind === 'question' ? 'That was every open question.' : 'That was every card.') : mode === 'easy' ? (easyDone ? 'That was ten. Nicely kept going.' : 'No easy cards yet. Practise a few first and they will show up here.')
             : mode === 'mistakes' ? 'Nothing on your Fehlerliste is ready right now.'
             : 'You have done everything ready in this deck.'}
         </p>
@@ -358,6 +358,7 @@ const TABS: { tab: StudyTab; label: string }[] = [
   { tab: 'cards', label: 'Cards' },
   { tab: 'all', label: 'All cards' },
   { tab: 'questions', label: 'Open questions' },
+  { tab: 'allQuestions', label: 'All open questions' },
   { tab: 'mistakes', label: 'Fehlerliste' },
   { tab: 'read', label: 'Read' },
 ]
@@ -442,7 +443,7 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
             {entry.tab === 'mistakes' && course ? ` (${course.mistakes})` : ''}
           </button>
         ))}
-        {(tab === 'cards' || tab === 'all' || tab === 'questions') && (
+        {(tab === 'cards' || tab === 'all' || tab === 'questions' || tab === 'allQuestions') && (
           <select
             aria-label="Chapter"
             lang="de"
@@ -467,8 +468,8 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
           <Deck
             key={`${courseId}-${tab}`}
             courseId={courseId}
-            mode={tab === 'mistakes' ? 'mistakes' : tab === 'easy' ? 'easy' : tab === 'all' ? 'all' : 'review'}
-            kind={tab === 'cards' || tab === 'easy' || tab === 'all' ? 'card' : tab === 'questions' ? 'question' : undefined}
+            mode={tab === 'mistakes' ? 'mistakes' : tab === 'easy' ? 'easy' : tab === 'all' || tab === 'allQuestions' ? 'all' : 'review'}
+            kind={tab === 'cards' || tab === 'easy' || tab === 'all' ? 'card' : tab === 'questions' || tab === 'allQuestions' ? 'question' : undefined}
             chapterId={chapterId}
             ensureSession={ensureSession}
             answered={refreshCourses}
