@@ -5,7 +5,8 @@ export function Pill() {
   const snapshot = useSnapshot()
   const session = snapshot?.session
   if (!snapshot || !session) return null
-  const plant = snapshot.plants.find((row) => row.isCurrent)
+  // What you last clicked on, or else what is growing in the garden.
+  const plant = snapshot.plants.find((row) => row.id === snapshot.shownPlantId) ?? snapshot.plants.find((row) => row.isCurrent) ?? snapshot.plants.at(-1)
   const blockMs = session.settings.blockMinutes * 60_000
 
   const time = {
@@ -18,7 +19,7 @@ export function Pill() {
 
   return (
     <div className="pill">
-      {plant && <PlantView key={plant.id} plantId={plant.id} className="pill-plant" genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} />}
+      {plant && <PlantView key={plant.id} plantId={plant.id} className="pill-plant" genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} closed={plant.flowersClosed} pods={plant.pods} />}
       <div className="pill-text">
         <span className="pill-time">{time}</span>
         <span className="pill-label">{label}</span>

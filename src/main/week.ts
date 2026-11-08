@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS week_claims (
 export type Week = ReturnType<typeof openWeek>
 
 export function grantReward(database: Db, reward: WeekReward) {
+  if (reward.amount) {
+    database.addToWallet(reward.amount)
+    return
+  }
   const seed = reward.bromeliad ? bromeliadSeed(Math.random) : reward.gold ? GOLD_POT : Math.floor(Math.random() * 2 ** 31)
   database.addFund({ kind: reward.kind, rarity: reward.rarity, seed }, null)
 }

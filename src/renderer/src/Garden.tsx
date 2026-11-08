@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { crossChance, pollinationCost, pollinationProblem, sexOf } from '../../core/genetics'
 import { cutProblem, emergenceLeaves, leafType } from '../../core/leaves'
-import { FLOWERING_GROWTH, plantRarity, RARITY_LABELS, speciesById, sproutCost, SPROUT_GROWTH, stageProgress, varietyName, type Variegation } from '../../core/plants'
+import { bedsTouch, FLOWERING_GROWTH, plantRarity, RARITY_LABELS, speciesById, sproutCost, SPROUT_GROWTH, stageProgress, varietyName, type Variegation } from '../../core/plants'
 import { potDesign } from '../../core/pots'
-import { fundGrowthAmount, fundSunAmount, REWARDS, type Fund } from '../../core/rewards'
+import { bedCost, fundGrowthAmount, fundSunAmount, REWARDS, type Fund } from '../../core/rewards'
 import { BED_LITRES } from '../../core/soil'
 import type { BedRow, FundRow, MixRow, NurseryRow, PlantRow, PollinationRow, Snapshot } from '../../shared/api'
 import { PlantStage, PlantView, Pot } from './PlantView'
@@ -39,14 +39,17 @@ function originLine(plant: PlantRow, plants: PlantRow[]): string | null {
 }
 
 const isCutting = (plant: PlantRow) => plant.origin?.kind === 'cutting'
-const inBedOrder = (plant: PlantRow, beds: readonly BedRow[]) => beds.findIndex((bed) => bed.id === plant.bedId)
+const bedOf = (plant: PlantRow, beds: readonly BedRow[]) => beds.find((bed) => bed.id === plant.bedId)
 
 function PollinateChoices({ plant, plants, beds, pollen }: { plant: PlantRow; plants: PlantRow[]; beds: readonly BedRow[]; pollen: number }) {
   if (plant.location !== 'garden') return <p className="hint">Plants only pollinate in the garden, in neighbouring beds.</p>
   if (plant.growth < FLOWERING_GROWTH) return <p className="hint">Once it flowers, it can pollinate a plant in the bed next to it.</p>
   if (plant.restLeft > 0) return <p className="hint">Resting. It blooms again after {Math.ceil(plant.restLeft)} ☀ of study.</p>
-  const place = inBedOrder(plant, beds)
-  const neighbours = plants.filter((row) => row.id !== plant.id && row.location === 'garden' && Math.abs(inBedOrder(row, beds) - place) === 1)
+  const own = bedOf(plant, beds)
+  const neighbours = plants.filter((row) => {
+    const other = bedOf(row, beds)
+    return row.id !== plant.id && own && other && bedsTouch(own, other)
+  })
   const partners = neighbours.filter((row) => !pollinationProblem(plant, row))
   const crossing = (row: PlantRow) => ((plant.soil?.stats.crossing ?? 0) + (row.soil?.stats.crossing ?? 0)) / 2
   return (
@@ -94,28 +97,64 @@ function CuttableLeaves({ plant }: { plant: PlantRow }) {
   )
 }
 
-function CutPanel({ plant, shears }: { plant: PlantRow; shears: number }) {
-  const [open, setOpen] = useState(false)
+/** The big view of a greenhouse plant, with room to pick the leaf you want. */
+function PlantStudio({ plant, shears, close }: { plant: PlantRow; shears: number; close: () => void }) {
+  const [cutting, setCutting] = useState(false)
+  const closeButton = useRef<HTMLButtonElement>(null)
   const wear = 1 - (plant.soil?.stats.cuttings ?? 0)
   const tooYoung = plant.growth < REWARDS.cuttingMinGrowth
   const queue = plant.leaves.queue.length
+
+  useEffect(() => {
+    closeButton.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [close])
+
   return (
-    <>
-      <button className="button quiet" disabled={tooYoung || shears < wear} aria-expanded={open} onClick={() => setOpen(!open)}>
-        {open ? 'Put the shears away' : 'Cut a leaf'}
-      </button>
-      <p className="hint">
-        {tooYoung ? `Leaves can be cut from growth ${REWARDS.cuttingMinGrowth}.` : shears < wear ? 'You need shears from the shop.' : `Your shears have ${Number(shears.toFixed(1))} cuts left. One leaf wears them by ${Number(wear.toFixed(2))}.`}
-      </p>
-      {queue > 0 && <p className="hint">{queue === 1 ? 'A cut leaf regrows next, not always as it was.' : `${queue} cut leaves regrow next, not always as they were.`}</p>}
-      {open && !tooYoung && (
-        <div className="cut-stage">
-          <p className="hint">Click the leaf to cut. A cutting from a variegated leaf makes more of the new plant's leaves mutate, in more colours.</p>
-          <PlantView className="cut-plant" genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} title={`Choose a leaf of ${plantName(plant)}`} onLeaf={(index) => void window.api.takeCutting(plant.id, index)} />
-          <CuttableLeaves plant={plant} />
+    <div className="studio" role="dialog" aria-modal="true" aria-label={plantName(plant)}>
+      <div className="studio-stage">
+        <PlantView
+          className="studio-plant"
+          plantId={plant.id}
+          genome={plant.genome}
+          growth={plant.growth}
+          pot={plant.pot}
+          leaves={plant.leaves}
+          closed={plant.flowersClosed}
+          pods={plant.pods}
+          title={plantName(plant)}
+          onLeaf={cutting ? (index) => void window.api.takeCutting(plant.id, index) : undefined}
+        />
+      </div>
+      <div className="studio-side">
+        <div className="week-item-head">
+          <h2>{plantName(plant)}</h2>
+          <button ref={closeButton} className="button quiet" onClick={close}>
+            Close
+          </button>
         </div>
-      )}
-    </>
+        <p>
+          {varietyName(plant.genome)}, {stageProgress(plant.growth).stage.toLowerCase()}
+        </p>
+        <button className={`button${cutting ? ' sunny' : ''}`} disabled={tooYoung || shears < wear} aria-pressed={cutting} onClick={() => setCutting(!cutting)}>
+          {cutting ? 'Put the shears away' : 'Pick up the shears'}
+        </button>
+        <p className="hint">
+          {tooYoung ? `Leaves can be cut from growth ${REWARDS.cuttingMinGrowth}. Grow it on in a garden bed.` : shears < wear ? 'You need shears from the shop.' : `Your shears have ${Number(shears.toFixed(1))} cuts left. One leaf wears them by ${Number(wear.toFixed(2))}.`}
+        </p>
+        {cutting && !tooYoung && (
+          <>
+            <p className="hint">Click a leaf to cut it. A cutting from a variegated leaf makes more of the new plant's leaves mutate, in more colours. It goes to your seed box.</p>
+            <CuttableLeaves plant={plant} />
+          </>
+        )}
+        {queue > 0 && <p className="hint">{queue === 1 ? 'A cut leaf regrows' : `${queue} cut leaves regrow`} as you study, not always as before. It is twice as fast in a garden bed.</p>}
+      </div>
+    </div>
   )
 }
 
@@ -134,8 +173,8 @@ function PotChoice({ plant, owned }: { plant: PlantRow; owned: readonly number[]
   )
 }
 
-function PlantDetail({ plant, snapshot }: { plant: PlantRow; snapshot: Snapshot }) {
-  const { plants, wallet, beds, shears, pollen, pollinations, ownedPots } = snapshot
+function PlantDetail({ plant, snapshot, openStudio }: { plant: PlantRow; snapshot: Snapshot; openStudio: () => void }) {
+  const { plants, wallet, beds, pollen, pollinations, ownedPots } = snapshot
   const finished = plant.growth >= FLOWERING_GROWTH
   const origin = originLine(plant, plants)
   const inGarden = plant.location === 'garden'
@@ -161,6 +200,12 @@ function PlantDetail({ plant, snapshot }: { plant: PlantRow; snapshot: Snapshot 
         <button className="button" disabled={finished || !inGarden || wallet < REWARDS.waterCost} onClick={() => void window.api.water(plant.id)}>
           Water ({REWARDS.waterCost} ☀)
         </button>
+        <button className="button quiet" disabled={finished || !inGarden || wallet < 50} onClick={() => void window.api.water(plant.id, 50)}>
+          Feed 50 ☀
+        </button>
+        <button className="button quiet" disabled={finished || !inGarden || wallet < 1} onClick={() => void window.api.water(plant.id, wallet)}>
+          Feed all
+        </button>
         {inGarden ? (
           <button className="button quiet" disabled={plant.growth < REWARDS.showGrowth || busy} onClick={() => void window.api.moveToGreenhouse(plant.id)}>
             Move to greenhouse
@@ -171,6 +216,8 @@ function PlantDetail({ plant, snapshot }: { plant: PlantRow; snapshot: Snapshot 
           </button>
         )}
       </div>
+      {inGarden && finished && <p className="hint">Its flowers close in the greenhouse. Back in a bed it blooms again after some study.</p>}
+      {!inGarden && finished && plant.restLeft > 0 && <p className="hint">Back in a bed, it blooms again after {Math.ceil(plant.restLeft)} ☀ of study.</p>}
       {inGarden && plant.growth < REWARDS.showGrowth && <p className="hint">It can go on show once it is a young plant, from growth {REWARDS.showGrowth}.</p>}
       {inGarden && plant.growth < SPROUT_GROWTH && (
         <>
@@ -182,7 +229,11 @@ function PlantDetail({ plant, snapshot }: { plant: PlantRow; snapshot: Snapshot 
       )}
       {!inGarden && !finished && freeBeds <= 0 && <p className="hint">Plants only grow in a garden bed, and yours are all in use.</p>}
       <div className="breeding">
-        <CutPanel plant={plant} shears={shears} />
+        {!inGarden && (
+          <button className="button quiet" onClick={openStudio}>
+            Open up close, to cut leaves
+          </button>
+        )}
         <PollinateChoices plant={plant} plants={plants} beds={beds} pollen={pollen} />
       </div>
       <PotChoice plant={plant} owned={ownedPots} />
@@ -257,9 +308,10 @@ function SeedBox({ items, plants, bedId, canSow }: { items: readonly NurseryRow[
   )
 }
 
-function GardenPlot({ snapshot, selected, select, selectedBed, selectBed }: { snapshot: Snapshot; selected: PlantRow | null; select: (id: number) => void; selectedBed: BedRow | null; selectBed: (id: number) => void }) {
+function GardenPlot({ snapshot, select, selectedBed, selectBed }: { snapshot: Snapshot; select: (id: number) => void; selectedBed: BedRow | null; selectBed: (id: number) => void }) {
   const { plants, beds, nursery, wallet, pollinations } = snapshot
-  const nextCost = REWARDS.bedCosts[beds.length - 1]
+  const canBuy = beds.length < REWARDS.maxBeds
+  const cost = bedCost(beds.length)
   const [target, setTarget] = useState<number | null>(null)
   const empties = beds.filter((bed) => !plants.some((plant) => plant.bedId === bed.id))
   const sowInto = selectedBed && empties.some((bed) => bed.id === selectedBed.id) ? selectedBed.id : null
@@ -271,10 +323,33 @@ function GardenPlot({ snapshot, selected, select, selectedBed, selectBed }: { sn
     if (kind === 'bed') void window.api.swapBeds(Number(id), bedId)
   }
 
+  // One row and column more on each side, to expand in all four directions.
+  const xs = beds.map((bed) => bed.x)
+  const ys = beds.map((bed) => bed.y)
+  const left = Math.min(...xs) - 1
+  const top = Math.min(...ys) - 1
+  const columns = Math.max(...xs) + 1 - left + 1
+  const rows = Math.max(...ys) + 1 - top + 1
+  const cells = Array.from({ length: rows * columns }, (_, i) => ({ x: left + (i % columns), y: top + Math.floor(i / columns) }))
+
   return (
     <>
-      <div className="beds">
-        {beds.map((bed) => {
+      <div className="beds" style={{ gridTemplateColumns: `repeat(${columns}, 188px)` }}>
+        {cells.map((cell) => {
+          const bed = beds.find((row) => row.x === cell.x && row.y === cell.y)
+          if (!bed) {
+            if (!canBuy || !beds.some((row) => bedsTouch(row, cell))) return <div key={`${cell.x},${cell.y}`} className="bed-gap" />
+            return (
+              <div key={`${cell.x},${cell.y}`} className="bed locked">
+                <div className="bed-plant">
+                  <button className="button quiet" disabled={wallet < cost} onClick={() => void window.api.buyBed(cell.x, cell.y)}>
+                    Add a bed ({cost} ☀)
+                  </button>
+                </div>
+                <div className="bed-soil" />
+              </div>
+            )
+          }
           const plant = plants.find((row) => row.bedId === bed.id)
           const label = plant ? plantName(plant) : 'Empty bed'
           return (
@@ -298,7 +373,7 @@ function GardenPlot({ snapshot, selected, select, selectedBed, selectBed }: { sn
                   if (plant) select(plant.id)
                 }}
               >
-                {plant ? <PlantView plantId={plant.id} genome={plant.genome} growth={plant.growth} leaves={plant.leaves} title={plantName(plant)} inBed /> : nursery.length > 0 ? 'Sow from your seed box' : 'Empty bed'}
+                {plant ? <PlantView plantId={plant.id} genome={plant.genome} growth={plant.growth} leaves={plant.leaves} closed={plant.flowersClosed} pods={plant.pods} title={plantName(plant)} inBed /> : nursery.length > 0 ? 'Sow from your seed box' : 'Empty bed'}
               </button>
               <div className="bed-soil" style={bed.soil ? { background: bed.soil.color } : undefined} />
               <div className="bed-label">
@@ -314,18 +389,8 @@ function GardenPlot({ snapshot, selected, select, selectedBed, selectBed }: { sn
             </div>
           )
         })}
-        {nextCost !== undefined && (
-          <div className="bed locked">
-            <div className="bed-plant">
-              <button className="button quiet" disabled={wallet < nextCost} onClick={() => void window.api.buyBed()}>
-                Add a bed ({nextCost} ☀)
-              </button>
-            </div>
-            <div className="bed-soil" />
-          </div>
-        )}
       </div>
-      <p className="hint garden-note">Drag beds to reorder them. Flowering plants next to each other can pollinate, and the first seed falls into a free bed beside them.</p>
+      <p className="hint garden-note">Drag beds to swap them. Flowering plants in beds that touch can pollinate, up, down, left or right. Their pods turn brown as they ripen, a little more sun pops them, and the seeds land in free beds around the parents, or in your seed box.</p>
       {pollinations.length > 0 && (
         <section className="pollinations" aria-label="Pollinations">
           <h3>Pollinating</h3>
@@ -343,16 +408,21 @@ function PollinationBar({ row, plants, wallet }: { row: PollinationRow; plants: 
   const a = plants.find((plant) => plant.id === row.plantA)
   const b = plants.find((plant) => plant.id === row.plantB)
   const label = a ? (b ? `${plantName(a)} and ${plantName(b)}` : `${plantName(a)} with bought pollen`) : 'Pollination'
-  const share = Math.min(100, (row.paid / row.needed) * 100)
+  const ripe = row.paid >= row.needed
+  const paid = ripe ? row.paid - row.needed : row.paid
+  const goal = ripe ? row.popNeeded : row.needed
+  const left = row.needed + row.popNeeded - row.paid
+  const share = Math.min(100, (paid / goal) * 100)
   return (
     <div className="pollination">
       <div className="week-item-head">
         <strong>{label}</strong>
         <span>
-          {Math.floor(row.paid)} of {row.needed} ☀
+          {Math.floor(paid)} of {goal} ☀
         </span>
       </div>
-      <div className="progress" role="progressbar" aria-label={`Pollination of ${label}`} aria-valuenow={Math.round(share)}>
+      <p className="hint">{ripe ? 'The pods are brown and ripe. A little more sun pops them.' : 'The seed pods turn brown as they ripen.'}</p>
+      <div className="progress" role="progressbar" aria-label={`${ripe ? 'Popping' : 'Ripening'} ${label}`} aria-valuenow={Math.round(share)}>
         <span style={{ width: `${share}%` }} />
       </div>
       <label className="fill-toggle">
@@ -365,7 +435,7 @@ function PollinationBar({ row, plants, wallet }: { row: PollinationRow; plants: 
             +{amount} ☀
           </button>
         ))}
-        <button className="button quiet" disabled={wallet < 1} onClick={() => void window.api.feedPollination(row.id, row.needed - row.paid)}>
+        <button className="button quiet" disabled={wallet < 1} onClick={() => void window.api.feedPollination(row.id, left)}>
           Give all I can
         </button>
       </div>
@@ -373,7 +443,7 @@ function PollinationBar({ row, plants, wallet }: { row: PollinationRow; plants: 
   )
 }
 
-function Greenhouse({ snapshot, selected, select }: { snapshot: Snapshot; selected: PlantRow | null; select: (id: number) => void }) {
+function Greenhouse({ snapshot, selected, select, openStudio }: { snapshot: Snapshot; selected: PlantRow | null; select: (id: number) => void; openStudio: () => void }) {
   const onShow = snapshot.plants.filter((plant) => plant.location === 'greenhouse').sort((a, b) => (a.shelf ?? 0) - (b.shelf ?? 0))
   const [target, setTarget] = useState<number | null>(null)
   // Plants already here when it opens stay put; only a newly arrived one settles in.
@@ -408,16 +478,20 @@ function Greenhouse({ snapshot, selected, select }: { snapshot: Snapshot; select
                 }}
                 onDragLeave={() => setTarget(null)}
                 onDrop={(event) => drop(event, plant)}
-                onClick={() => select(plant.id)}
+                aria-label={`Open ${plantName(plant)} up close`}
+                onClick={() => {
+                  select(plant.id)
+                  openStudio()
+                }}
               >
-                <PlantView plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} title={plantName(plant)} />
+                <PlantView plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} closed={plant.flowersClosed} pods={plant.pods} title={plantName(plant)} />
                 <span>
                   {plantName(plant)}, {stageProgress(plant.growth).stage}
                 </span>
               </button>
             ))}
           </div>
-          <p className="hint garden-note">Drag a plant onto another to swap their places.</p>
+          <p className="hint garden-note">Click a plant to see it up close and cut leaves. Drag it onto another to swap their places.</p>
         </>
       )}
     </div>
@@ -431,6 +505,13 @@ export function Garden({ snapshot }: { snapshot: Snapshot }) {
   const [place, setPlace] = useState<Place>('plot')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [bedId, setBedId] = useState<number | null>(null)
+  const [studio, setStudio] = useState(false)
+  const closeStudio = useCallback(() => setStudio(false), [])
+  const openStudio = useCallback(() => setStudio(true), [])
+  const choose = (id: number) => {
+    setSelectedId(id)
+    void window.api.setShownPlant(id)
+  }
   const here = plants.filter((plant) => plant.location === (place === 'glass' ? 'greenhouse' : 'garden'))
   const selected = here.find((plant) => plant.id === selectedId) ?? here.find((plant) => plant.isCurrent) ?? here[0] ?? null
   const selectedBed = beds.find((bed) => bed.id === bedId) ?? beds.find((bed) => bed.id === selected?.bedId) ?? beds[0] ?? null
@@ -449,15 +530,15 @@ export function Garden({ snapshot }: { snapshot: Snapshot }) {
       </nav>
       <div className={`world ${place}`}>
         <div className="world-main">
-          {place === 'plot' && <GardenPlot snapshot={snapshot} selected={selected} select={setSelectedId} selectedBed={selectedBed} selectBed={setBedId} />}
-          {place === 'glass' && <Greenhouse snapshot={snapshot} selected={selected} select={setSelectedId} />}
+          {place === 'plot' && <GardenPlot snapshot={snapshot} select={choose} selectedBed={selectedBed} selectBed={setBedId} />}
+          {place === 'glass' && <Greenhouse snapshot={snapshot} selected={selected} select={choose} openStudio={openStudio} />}
           {place === 'shop' && <Shop snapshot={snapshot} />}
           {place === 'soil' && <SoilBench snapshot={snapshot} />}
         </div>
         <aside className="world-side">
           <p className="wallet">{sun(wallet)} to spend</p>
           {/* A new panel per plant, so its name field never carries over. */}
-          {(place === 'plot' || place === 'glass') && shownPlant && <PlantDetail key={shownPlant.id} plant={shownPlant} snapshot={snapshot} />}
+          {(place === 'plot' || place === 'glass') && shownPlant && <PlantDetail key={shownPlant.id} plant={shownPlant} snapshot={snapshot} openStudio={openStudio} />}
           {place === 'plot' && selectedBed && <BedSoil bed={selectedBed} mixes={mixes} plantName={bedPlant ? plantName(bedPlant) : null} />}
           {funds.length > 0 && (
             <>
@@ -483,6 +564,7 @@ export function Garden({ snapshot }: { snapshot: Snapshot }) {
           )}
         </aside>
       </div>
+      {studio && place === 'glass' && selected && <PlantStudio key={selected.id} plant={selected} shears={snapshot.shears} close={closeStudio} />}
     </>
   )
 }

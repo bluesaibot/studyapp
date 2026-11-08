@@ -85,6 +85,7 @@ export const TOPIC_LEVELS: readonly EffortLevel[] = [
   { id: 'medium', label: 'Medium', hours: 10 },
   { id: 'big', label: 'Big', hours: 30 },
   { id: 'huge', label: 'Huge', hours: 60 },
+  { id: 'massive', label: 'Massive', hours: 150 },
 ]
 
 /** A known size sets the hours, and typed hours clear the size. */

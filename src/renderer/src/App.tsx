@@ -47,7 +47,7 @@ function ShelfPlant({ snapshot }: { snapshot: Snapshot }) {
   return (
     <div className="stage-plant">
       {plant ? (
-        <PlantView key={plant.id} plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} />
+        <PlantView key={plant.id} plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} leaves={plant.leaves} closed={plant.flowersClosed} pods={plant.pods} />
       ) : (
         <svg viewBox="0 0 400 500" role="img" aria-label="Empty pot, your first seed goes in when you first study">
           <Pot design={POT_DESIGNS[0]} />

@@ -13,6 +13,8 @@ export interface WeekReward {
   bromeliad?: boolean
   /** The golden glaze. */
   gold?: boolean
+  /** Sun paid out straight away, in place of a find. */
+  amount?: number
 }
 
 export interface WeekStats {
@@ -36,7 +38,7 @@ export const WEEK_GOALS: readonly WeekGoal[] = [
   { id: 'study-20h', title: 'Study 20 hours', metric: 'focusMinutes', target: 1200, reward: { kind: 'seed', rarity: 'rare' } },
   { id: 'study-30h', title: 'Study 30 hours', metric: 'focusMinutes', target: 1800, reward: { kind: 'seed', rarity: 'rare', bromeliad: true } },
   { id: 'days-5', title: 'Study on 5 days', metric: 'studyDays', target: 5, reward: { kind: 'fertilizer', rarity: 'rare' } },
-  { id: 'answers-150', title: 'Answer 150 cards or questions', metric: 'answers', target: 150, reward: { kind: 'sun', rarity: 'rare' } },
+  { id: 'answers-150', title: 'Answer 150 cards or questions', metric: 'answers', target: 150, reward: { kind: 'sun', rarity: 'rare', amount: 100 } },
 ]
 
 /** For finishing the week: the first study goal and every task. Studying alone does not get it. */
@@ -47,11 +49,11 @@ export const WEEK_COMPLETE: { id: string; title: string } = {
 
 /** Always something good, and different from week to week. */
 export const WEEK_COMPLETE_REWARDS: readonly (readonly [WeekReward, number])[] = [
-  [{ kind: 'seed', rarity: 'rare' }, 35],
-  [{ kind: 'fertilizer', rarity: 'rare' }, 30],
+  [{ kind: 'sun', rarity: 'rare', amount: 200 }, 35],
+  [{ kind: 'seed', rarity: 'rare' }, 30],
   [{ kind: 'seed', rarity: 'rare', bromeliad: true }, 15],
+  [{ kind: 'fertilizer', rarity: 'rare' }, 10],
   [{ kind: 'pot', rarity: 'rare' }, 10],
-  [{ kind: 'sun', rarity: 'rare' }, 10],
 ]
 
 /** Decided by the week, so it can be shown ahead and stays the same all week. */

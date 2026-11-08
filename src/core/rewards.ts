@@ -3,10 +3,10 @@ import { pickWeighted, type Rng } from './rng'
 /** All tunable reward numbers live here. */
 export const REWARDS = {
   sunPerFocusMinute: 1,
-  sunPerCard: 0.5,
+  sunPerCard: 0.1,
   /** Paid once a day per question, and only after real time with it. */
-  sunPerOpenQuestion: 5,
-  sunPerQuickQuestion: 1,
+  sunPerOpenQuestion: 2,
+  sunPerQuickQuestion: 0.2,
   fullQuestionMs: 60_000,
   sunPerDrawing: 8,
   sunForDip: 3,
@@ -15,25 +15,36 @@ export const REWARDS = {
   /** Share of earned sun that grows the current plant; the rest goes to the wallet. */
   autoGrowthShare: 0.5,
   waterCost: 10,
-  waterGrowth: 10,
   /** A plant's sex shows from this growth, the Mature stage. */
   sexShownGrowth: 300,
   /** Sun a plant takes to sprout: seeds take long, and rarer plants take longer still. */
   sproutSeedSun: 100,
   sproutCuttingSun: 40,
   /** Multiplier on the sprouting sun, by how rare a plant is. */
-  sproutRarity: [1, 1.5, 2.5, 4],
+  sproutRarity: [1, 2, 4, 8],
+  /** After sprouting, the sun it takes per point of growth, by how rare a plant is. */
+  growthRarity: [1, 1.2, 1.5, 2],
   /** A plant is only ready for the greenhouse once it is this big. */
   showGrowth: 100,
   /** Leaves can be cut from the Mature stage, and only a few can regrow at once. */
   cuttingMinGrowth: 300,
   maxCutQueue: 3,
   leafRegrowSun: 30,
-  /** More garden beds. Sun to spend comes in at about 900 a week. */
-  bedCosts: [300, 700, 1500, 3000],
+  /** The second bed, and how much more each one after it costs. */
+  firstBedCost: 300,
+  bedCostStep: 100,
+  maxBeds: 25,
+  /** Extra sun that pops ripe seeds out of their pods. */
+  seedPopSun: 40,
+  /** In the greenhouse, leaves regrow at this share of the speed they have in a bed. */
+  greenhouseRegrowShare: 0.5,
+  /** How far flowers stay open while a plant rests. */
+  closedFlowers: 0.3,
   /** Filling the pollination bar. Crossing two varieties of a group takes more. */
   pollinateSameVariety: 150,
   pollinateSameGroup: 400,
+  /** Share of the spendable sun from studying that goes into an open bar. */
+  pollinationStudyShare: 0.5,
   /** Bought pollen makes any flowering plant fertile by itself, once. */
   pollenCost: 200,
   /** Studied sun it takes a plant to bloom again after making seeds. */
@@ -44,8 +55,12 @@ export const REWARDS = {
   todoMaxSun: 22,
   topicSunPerHour: 10,
   topicMinSun: 20,
-  topicMaxSun: 600,
+  topicMaxSun: 1500,
 } as const
+
+export function bedCost(bedCount: number): number {
+  return REWARDS.firstBedCost + REWARDS.bedCostStep * (bedCount - 1)
+}
 
 export type Rarity = 'common' | 'uncommon' | 'rare'
 export type FundKind = 'seed' | 'fertilizer' | 'sun' | 'pot'
@@ -102,7 +117,7 @@ export function questionSun(thinkingMs: number, paidToday: number): number {
   return Math.max(0, earned - paidToday)
 }
 
-const FUND_KINDS = [['seed', 35], ['fertilizer', 30], ['sun', 25], ['pot', 10]] as const
+const FUND_KINDS = [['sun', 70], ['fertilizer', 15], ['seed', 12], ['pot', 3]] as const
 
 export function rollFund(rng: Rng, dayMinutes: number): Fund {
   return {
@@ -121,5 +136,5 @@ export function fundSunAmount(rarity: Rarity): number {
 }
 
 export function fundGrowthAmount(rarity: Rarity): number {
-  return { common: 30, uncommon: 60, rare: 120 }[rarity]
+  return { common: 15, uncommon: 30, rare: 60 }[rarity]
 }

@@ -188,7 +188,7 @@ app.whenReady().then(async () => {
   }
   snapshot = await api('getSnapshot()')
   expect('six cards counted', snapshot.session.cardsReviewed === 6, snapshot.session.cardsReviewed)
-  expect('cards earned sun, right or wrong', snapshot.session.earnedSun >= 3, snapshot.session.earnedSun)
+  expect('cards earned sun, right or wrong', snapshot.session.earnedSun >= 0.6, snapshot.session.earnedSun)
   await shoot('08-session-bar')
 
   // Open question with a typed answer; rating it "Not yet" puts it on the Fehlerliste.
@@ -307,7 +307,7 @@ app.whenReady().then(async () => {
     return (await api('getSnapshot()')).session.earnedSun - before
   }
   const multiplier = (await api('getSnapshot()')).session.streakMultiplier
-  const near = (value, expected) => Math.abs(value - expected * multiplier) < 0.5 * multiplier
+  const near = (value, expected) => Math.abs(value - expected * multiplier) < 0.15 * multiplier
   const fresh = []
   for (let after = 0, item; fresh.length < 9 && (item = await api(`nextItem({ courseId: ${biochem.id}, mode: 'all', kind: 'question', afterPosition: ${'${after}'} })`.replace('${after}', after))); after = item.position) {
     if (item.isNew) fresh.push(item.id)
@@ -316,11 +316,11 @@ app.whenReady().then(async () => {
   const quickAgain = await sunBonus(fresh[0], 5000)
   const toppedUp = await sunBonus(fresh[0], 70000)
   const thirdTime = await sunBonus(fresh[0], 70000)
-  expect('a quick answer pays 1 sun', near(quick, 1), quick)
+  expect('a quick answer pays 0.2 sun', near(quick, 0.2), quick)
   expect('the same quick answer pays nothing more', near(quickAgain, 0), quickAgain)
-  expect('a minute with it tops up to the full 5', near(toppedUp, 4), toppedUp)
+  expect('a minute with it tops up to the full 2', near(toppedUp, 1.8), toppedUp)
   expect('after that it pays nothing more today', near(thirdTime, 0), thirdTime)
-  expect('another question pays its full 5', near(await sunBonus(fresh[1], 70000), 5))
+  expect('another question pays its full 2', near(await sunBonus(fresh[1], 70000), 2))
 
   // All open questions: only questions, in order, past the daily limit, and separate from the card deck.
   await js(`[...document.querySelectorAll('.tab')].find((b) => b.textContent === 'All open questions').click()`)
@@ -525,15 +525,18 @@ app.whenReady().then(async () => {
   snap = await api('getSnapshot()')
   expect('mixing uses up the soil', snap.mixes.length === 1 && snap.mixes[0].litres === 10 && !snap.soilStock.humus)
   const stats = snap.mixes[0].stats
-  expect('a mix has the kinds of its ingredients, near the recipe', stats.speed > 0.23 && stats.speed < 0.27 && stats.crossing > 0.23 && stats.crossing < 0.27 && stats.mutation === 0, JSON.stringify(stats))
+  expect('a mix has the kinds of its ingredients, near the recipe', stats.speed > 0.09 && stats.speed < 0.11 && stats.crossing > 0.2 && stats.crossing < 0.25 && stats.mutation === 0, JSON.stringify(stats))
   await api(`fillBed(${snap.beds[0].id}, ${snap.mixes[0].id})`)
   snap = await api('getSnapshot()')
   expect('a bed takes 10 L of a mix', snap.beds[0].soil && snap.mixes.length === 0)
 
   const garden = snap.plants.find((p) => p.location === 'garden')
   expect('the plant grows in that soil', garden && garden.soil && garden.soil.stats.speed === stats.speed)
-  await api(`buyBed()`)
-  await api(`buyBed()`)
+  await api(`buyBed(1, 0)`)
+  await api(`buyBed(2, 0)`)
+  await api(`buyBed(5, 5)`)
+  expect('a bed only goes next to another', (await api('getSnapshot()')).beds.length === 3)
+  expect('each bed costs a little more', (await api('getSnapshot()')).wallet < 20000 - 700 + 1)
   const direct = new (require('better-sqlite3'))(join(dataDir, 'studyapp.db'))
   const seedRow = (species, variety, sex, seed) => JSON.stringify({ species, seed, variety, sex, hue: 140, saturation: 45, lightness: 28, size: 1, fenestration: 0.8, variegation: 'none', variegationAmount: 0.5 })
   snap = await api('getSnapshot()')
@@ -551,37 +554,58 @@ app.whenReady().then(async () => {
   await api(`startPollination(${female}, ${male})`)
   snap = await api('getSnapshot()')
   expect('neighbours can pollinate', snap.pollinations.length === 1 && snap.pollinations[0].needed === 400)
+  expect('the seed parent grows green pods', snap.plants.find((p) => p.id === female).pods === 0 && snap.plants.find((p) => p.id === male).pods === null)
   const plantsBefore = snap.plants.length
   await place('Garden')
   await wait(400)
   await shoot('32-garden-pollinating')
-  await api(`feedPollination(${snap.pollinations[0].id}, 400)`)
+  const pollinationId = snap.pollinations[0].id
+  await api(`feedPollination(${pollinationId}, 400)`)
   snap = await api('getSnapshot()')
+  expect('full pods are brown, and wait to be popped', snap.plants.find((p) => p.id === female).pods === 1 && snap.plants.length === plantsBefore && snap.pollinations.length === 1)
+  await wait(300)
+  await shoot('32b-ripe-pods')
+  await api(`feedPollination(${pollinationId}, 40)`)
+  snap = await api('getSnapshot()')
+  expect('the flowers shut while resting', snap.plants.find((p) => p.id === female).flowersClosed)
   const child = snap.plants.find((p) => p.origin && p.origin.kind === 'cross')
   expect('the first seed falls into the free bed next door', snap.plants.length === plantsBefore + 1 && child && child.bedId === beds[1].id && child.growth === 0)
   expect('both parents rest after making seeds', snap.plants.find((p) => p.id === female).restLeft > 0 && snap.plants.find((p) => p.id === male).restLeft > 0)
 
+  const feedPlant = snap.plants.find((p) => p.origin && p.origin.kind === 'cross')
+  const walletBeforeFeed = snap.wallet
+  await api(`water(${feedPlant.id}, 50)`)
+  snap = await api('getSnapshot()')
+  expect('feeding moves sun from the wallet into a plant', Math.abs(walletBeforeFeed - snap.wallet - 50) < 0.01 && snap.plants.find((p) => p.id === feedPlant.id).growth > 0)
   const wear = snap.shears
   const cuts = snap.nursery.length
   await api(`takeCutting(${female}, 2)`)
+  expect('leaves cannot be cut in the garden', (await api('getSnapshot()')).shears === wear)
+  await api(`moveToGreenhouse(${female})`)
+  await api(`takeCutting(${female}, 2)`)
   snap = await api('getSnapshot()')
+  expect('a flowering plant shuts its flowers in the greenhouse, keeping its growth', snap.plants.find((p) => p.id === female).flowersClosed && snap.plants.find((p) => p.id === female).growth === 700)
   const cutPlant = snap.plants.find((p) => p.id === female)
   expect('cutting a leaf wears the shears and queues the leaf', snap.shears === wear - 1 && snap.nursery.length === cuts + 1 && cutPlant.leaves.queue[0].index === 2)
-  await js(`[...document.querySelectorAll('.bed-plant')][0].click()`)
-  await wait(400)
-  const leavesBefore = await js(`document.querySelectorAll('.world-main [data-leaf]').length`)
-  await click('Cut a leaf')
-  await wait(400)
-  await shoot('33-cut-a-leaf')
-  await js(`document.querySelector('.cut-plant [data-leaf="4"] path').dispatchEvent(new MouseEvent('click', { bubbles: true }))`)
-  await wait(400)
-  snap = await api('getSnapshot()')
-  expect('clicking a leaf cuts exactly that leaf', snap.plants.find((p) => p.id === female).leaves.queue.some((leaf) => leaf.index === 4), leavesBefore)
-  await api(`moveToGreenhouse(${male})`)
-  await api(`moveToGarden(${garden.id}, null)`)
   await place('Greenhouse')
   await wait(400)
-  await shoot('34-greenhouse')
+  await js(`[...document.querySelectorAll('.shelf-plant')].find((b) => b.textContent.includes('deliciosa')).click()`)
+  await wait(500)
+  expect('clicking a greenhouse plant opens it up close', await js(`Boolean(document.querySelector('.studio .studio-plant'))`))
+  expect('the small window follows the clicked plant', (await api('getSnapshot()')).shownPlantId === female)
+  await click('Pick up the shears')
+  await wait(500)
+  await shoot('33-cut-a-leaf')
+  await js(`document.querySelector('.studio-plant [data-leaf="4"] path').dispatchEvent(new MouseEvent('click', { bubbles: true }))`)
+  await wait(400)
+  snap = await api('getSnapshot()')
+  expect('clicking a leaf cuts exactly that leaf', snap.plants.find((p) => p.id === female).leaves.queue.some((leaf) => leaf.index === 4))
+  await js(`document.querySelector('.studio').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  await wait(300)
+  expect('escape closes the close-up', !(await js(`Boolean(document.querySelector('.studio'))`)))
+  await place('Garden')
+  await wait(400)
+  await shoot('34-garden-grid')
   console.log(problems.length ? `PROBLEMS:\n${[...new Set(problems)].join('\n')}` : 'no problems')
   app.quit()
 })

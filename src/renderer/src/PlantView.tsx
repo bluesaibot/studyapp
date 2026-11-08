@@ -3,6 +3,7 @@ import { leafType, NO_LEAF_STATE, regrowthOf, type LeafState } from '../../core/
 import {
   emergenceOf,
   fenestrationProgress,
+  FLOWERING_GROWTH,
   flowerProgress,
   MAX_LEAVES,
   smoothstep,
@@ -15,6 +16,7 @@ import {
   type Variegation,
 } from '../../core/plants'
 import { potDesign, type PotDesign } from '../../core/pots'
+import { REWARDS } from '../../core/rewards'
 import { varietyById, type LeafPattern } from '../../core/varieties'
 import { between, createRng, type Rng } from '../../core/rng'
 
@@ -127,6 +129,8 @@ function leafLook(genome: Genome, species: Species): LeafLook {
 interface LeafPlan {
   type(index: number): Variegation
   open(index: number): number
+  /** How far the flowers are open: all the way, or shut while resting. */
+  flowers: number
 }
 
 function LeafVeins({ pattern, genome, length, width }: { pattern: LeafPattern; genome: Genome; length: number; width: number }) {
@@ -427,7 +431,7 @@ function drawPole(genome: Genome, species: Species, growth: number, uid: string,
     }
   }
 
-  const bloom = flowerProgress(growth)
+  const bloom = flowerProgress(growth) * plan.flowers
   return (
     <>
       <g opacity={poleOpacity}>
@@ -510,7 +514,7 @@ function drawTrail(genome: Genome, species: Species, growth: number, uid: string
     return <polyline key={i} points={points.join(' ')} stroke={stemColor(genome)} strokeWidth={2.2} strokeLinecap="round" fill="none" />
   })
 
-  const bloom = flowerProgress(growth)
+  const bloom = flowerProgress(growth) * plan.flowers
   return (
     <>
       {stems}
@@ -562,7 +566,7 @@ function drawHoop(genome: Genome, species: Species, growth: number, uid: string,
     winding.push(`${at.x + wiggle} ${at.y + wiggle * 0.3}`)
   }
 
-  const bloom = flowerProgress(growth)
+  const bloom = flowerProgress(growth) * plan.flowers
   const opacity = smoothstep((growth - SPROUT_GROWTH) / 10)
   return (
     <>
@@ -634,7 +638,7 @@ function drawClump(genome: Genome, species: Species, growth: number, uid: string
     })
   }
 
-  const bloom = flowerProgress(growth)
+  const bloom = flowerProgress(growth) * plan.flowers
   const flowers: ReactNode[] = []
   if (bloom > 0) {
     for (let i = 0; i < 3; i += 1) {
@@ -694,8 +698,8 @@ function strapPath(baseX: number, baseY: number, tipX: number, tipY: number, mid
   return `M${baseX - nx * w * 0.8} ${baseY - ny * w * 0.8} Q${midX - nx * w * 1.2} ${midY - ny * w * 1.2} ${tipX} ${tipY} Q${midX + nx * w * 1.2} ${midY + ny * w * 1.2} ${baseX + nx * w * 0.8} ${baseY + ny * w * 0.8} Z`
 }
 
-function Inflorescence({ species, genome, growth, accent }: { species: Species; genome: Genome; growth: number; accent: string }) {
-  const bloom = flowerProgress(growth)
+function Inflorescence({ species, genome, growth, accent, open }: { species: Species; genome: Genome; growth: number; accent: string; open: number }) {
+  const bloom = flowerProgress(growth) * open
   if (bloom <= 0) return null
   const base = POT_TOP - 10
   const stalk = `hsl(${genome.hue} 40% 40%)`
@@ -886,7 +890,7 @@ function drawRosette(genome: Genome, species: Species, growth: number, uid: stri
   return (
     <>
       {back}
-      <Inflorescence species={species} genome={genome} growth={growth} accent={accent} />
+      <Inflorescence species={species} genome={genome} growth={growth} accent={accent} open={plan.flowers} />
       {front}
     </>
   )
@@ -1029,8 +1033,8 @@ export function Pot({ design }: { design: PotDesign }) {
 
 const DRAW_FORM = { pole: drawPole, trail: drawTrail, hoop: drawHoop, clump: drawClump, rosette: drawRosette } as const
 
-function drawFoliage(genome: Genome, species: Species, growth: number, uid: string, leaves: LeafState): ReactNode {
-  const plan: LeafPlan = { type: (index) => leafType(genome, leaves, index), open: (index) => smoothstep(regrowthOf(leaves, index)) }
+function drawFoliage(genome: Genome, species: Species, growth: number, uid: string, leaves: LeafState, closed: boolean): ReactNode {
+  const plan: LeafPlan = { type: (index) => leafType(genome, leaves, index), open: (index) => smoothstep(regrowthOf(leaves, index)), flowers: closed ? REWARDS.closedFlowers : 1 }
   const maturity = 0.32 + 0.68 * Math.min(1, growth / FULL_SIZE_GROWTH)
   const shootFade = 1 - smoothstep((growth - SPROUT_GROWTH) / 10)
   return (
@@ -1043,6 +1047,43 @@ function drawFoliage(genome: Genome, species: Species, growth: number, uid: stri
         </g>
       )}
     </>
+  )
+}
+
+/** Where the one big flower and the seed pods sit, for each way of growing. */
+const FLOWER_SPOT = { pole: [168, 214], trail: [226, 322], hoop: [200, 112], clump: [204, 226], rosette: [200, 296] } as const
+
+/** The flower you can spot from afar. It opens every time it comes into view, and shuts while the plant rests. */
+function BloomMark({ color, x, y, closed }: { color: string; x: number; y: number; closed: boolean }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <g className={`bloom-mark${closed ? ' closed' : ''}`}>
+        <circle r={38} fill="transparent" />
+        {[0, 60, 120, 180, 240, 300].map((angle) => (
+          <ellipse key={angle} cy={-21} rx={14} ry={22} fill={color} stroke="#3b2e2233" strokeWidth={1} transform={`rotate(${angle})`} />
+        ))}
+        <circle r={10} fill="#e6b93a" stroke="#00000022" />
+      </g>
+    </g>
+  )
+}
+
+/** Pods start out green and turn brown as they ripen. Ripe ones tremble, ready to pop. */
+function SeedPods({ ripeness, x, y }: { ripeness: number; x: number; y: number }) {
+  const mix = (from: number, to: number) => Math.round(lerp(from, to, ripeness))
+  const color = `rgb(${mix(127, 110)} ${mix(165, 70)} ${mix(72, 38)})`
+  const ripe = ripeness >= 1
+  return (
+    <g transform={`translate(${x} ${y + 34})`}>
+      <g className={`seed-pods${ripe ? ' ripe' : ''}`}>
+        {[-22, 0, 22].map((dx, i) => (
+          <g key={dx} transform={`translate(${dx} ${i === 1 ? 10 : 0})`}>
+            <line x1={0} y1={-12} x2={0} y2={-4} stroke="#5d6b3b" strokeWidth={2.5} />
+            <ellipse rx={10} ry={14} cy={8} fill={color} stroke="#00000030" strokeWidth={1} />
+          </g>
+        ))}
+      </g>
+    </g>
   )
 }
 
@@ -1077,17 +1118,23 @@ interface PlantViewProps {
   /** Planted in a bed, so no pot and nothing below the soil line. */
   inBed?: boolean
   leaves?: LeafState
+  /** Flowers shut: resting, or in the greenhouse. */
+  closed?: boolean
+  /** Seed pods, from green and new (0) to brown and ripe (1). */
+  pods?: number | null
   /** Makes each leaf clickable, for cutting. */
   onLeaf?: (index: number) => void
 }
 
-export function PlantView({ genome, growth, pot = 0, className, title, plantId, inBed = false, leaves = NO_LEAF_STATE, onLeaf }: PlantViewProps) {
+export function PlantView({ genome, growth, pot = 0, className, title, plantId, inBed = false, leaves = NO_LEAF_STATE, closed = false, pods = null, onLeaf }: PlantViewProps) {
   const uid = useMemo(() => `p${Math.random().toString(36).slice(2, 9)}`, [])
   const species = speciesById(genome.species)
   const { shown, spurting } = useShownGrowth(plantId, growth)
   // The session broadcasts every second; the drawing is only rebuilt when the shown growth moves.
   const leafKey = JSON.stringify(leaves)
-  const foliage = useMemo(() => drawFoliage(genome, species, shown, uid, leaves), [genome, species, shown, uid, leafKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const spot = FLOWER_SPOT[species.form]
+  const flower = varietyById(species.id, genome.variety).flower ?? species.flower
+  const foliage = useMemo(() => drawFoliage(genome, species, shown, uid, leaves, closed), [genome, species, shown, uid, leafKey, closed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <svg
@@ -1104,6 +1151,8 @@ export function PlantView({ genome, growth, pot = 0, className, title, plantId, 
       }
     >
       <g className={`foliage${spurting ? ' spurt' : ''}`}>{foliage}</g>
+      {shown >= FLOWERING_GROWTH && <BloomMark color={flower} x={spot[0]} y={spot[1]} closed={closed} />}
+      {pods !== null && <SeedPods ripeness={pods} x={spot[0]} y={spot[1]} />}
       {!inBed && <Pot design={potDesign(pot)} />}
     </svg>
   )

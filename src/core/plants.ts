@@ -131,10 +131,10 @@ export const RARITY_LABELS = ['Plain', 'Uncommon', 'Rare', 'Exceptional'] as con
 export function plantRarity(genome: Genome): number {
   const variety = varietyById(genome.species, genome.variety)
   let points = 0
-  if (speciesById(genome.species).rare) points += 2
+  if (speciesById(genome.species).rare) points += 3
   if (variety.rare) points += 1
   if (genome.crossed) points += 1
-  if (genome.variegation !== 'none') points += { marbled: 2, sectoral: 3, mint: 3, aurea: 3, albo: 4 }[genome.variegation]
+  if (genome.variegation !== 'none') points += { marbled: 3, sectoral: 4, mint: 4, aurea: 4, albo: 5 }[genome.variegation]
   if (points <= 0) return 0
   if (points <= 2) return 1
   return points <= 4 ? 2 : 3
@@ -145,12 +145,17 @@ export function sproutCost(genome: Genome, isCutting: boolean): number {
   return (isCutting ? REWARDS.sproutCuttingSun : REWARDS.sproutSeedSun) * REWARDS.sproutRarity[plantRarity(genome)]
 }
 
-/** Growth from sun: up to the sprout it is spread over the sprouting cost, after that one to one. */
-export function growthFromSun(growth: number, sun: number, cost: number): number {
-  if (growth >= SPROUT_GROWTH) return growth + sun
+/** After sprouting, rare plants keep taking longer. */
+export function growthCost(genome: Genome): number {
+  return REWARDS.growthRarity[plantRarity(genome)]
+}
+
+/** Growth from sun: up to the sprout it is spread over the sprouting cost, after that at the plant's own rate. */
+export function growthFromSun(growth: number, sun: number, cost: number, rate = 1): number {
+  if (growth >= SPROUT_GROWTH) return growth + sun / rate
   const sunToSprout = ((SPROUT_GROWTH - growth) / SPROUT_GROWTH) * cost
   if (sun < sunToSprout) return growth + (sun * SPROUT_GROWTH) / cost
-  return SPROUT_GROWTH + (sun - sunToSprout)
+  return SPROUT_GROWTH + (sun - sunToSprout) / rate
 }
 
 /** Chance out of 100 that a seed of this rarity grows a bromeliad. */
@@ -168,6 +173,11 @@ export function bromeliadSeed(rng: () => number): number {
     const seed = Math.floor(rng() * 2 ** 31)
     if (speciesFromSeed(seed, 'rare').group === 'bromeliad') return seed
   }
+}
+
+/** Beds reach each other up, down, left and right. */
+export function bedsTouch(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1
 }
 
 export const STAGES = [

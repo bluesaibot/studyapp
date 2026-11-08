@@ -17,11 +17,11 @@ export interface SoilStats {
 export type SoilStat = keyof SoilStats
 
 export const SOIL_STATS: readonly { id: SoilStat; label: string; max: number }[] = [
-  { id: 'speed', label: 'Grows faster', max: 0.5 },
-  { id: 'bloom', label: 'Blooms more often', max: 0.6 },
-  { id: 'cuttings', label: 'Less wear from cuttings', max: 0.7 },
+  { id: 'speed', label: 'Grows faster', max: 0.2 },
+  { id: 'bloom', label: 'Blooms more often', max: 0.45 },
+  { id: 'cuttings', label: 'Less wear from cuttings', max: 0.5 },
   { id: 'mutation', label: 'More mutations', max: 0.05 },
-  { id: 'crossing', label: 'Crosses take more often', max: 0.5 },
+  { id: 'crossing', label: 'Crosses take more often', max: 0.45 },
 ]
 
 export const NO_SOIL_STATS: SoilStats = { speed: 0, bloom: 0, cuttings: 0, mutation: 0, crossing: 0 }
@@ -35,13 +35,18 @@ export interface Ingredient {
 }
 
 export const INGREDIENTS: readonly Ingredient[] = [
-  { id: 'potting', name: 'Potting soil', color: '#4a3a2a', pricePerLitre: 2, stats: { speed: 0.08 } },
-  { id: 'humus', name: 'Worm humus', color: '#2f241b', pricePerLitre: 10, stats: { speed: 0.5 } },
-  { id: 'coco', name: 'Coco fibre', color: '#8a5f3c', pricePerLitre: 6, stats: { speed: 0.2, cuttings: 0.3 } },
-  { id: 'perlite', name: 'Perlite', color: '#e6e3da', pricePerLitre: 7, stats: { cuttings: 0.7 } },
-  { id: 'bark', name: 'Orchid bark', color: '#a4623a', pricePerLitre: 9, stats: { bloom: 0.6 } },
-  { id: 'sphagnum', name: 'Sphagnum moss', color: '#9fb37a', pricePerLitre: 14, stats: { crossing: 0.5, bloom: 0.15 } },
+  { id: 'potting', name: 'Potting soil', color: '#4a3a2a', pricePerLitre: 2, stats: { speed: 0.05 } },
+  { id: 'humus', name: 'Worm humus', color: '#2f241b', pricePerLitre: 12, stats: { speed: 0.2 } },
+  { id: 'coco', name: 'Coco fibre', color: '#8a5f3c', pricePerLitre: 6, stats: { speed: 0.1, cuttings: 0.25 } },
+  { id: 'perlite', name: 'Perlite', color: '#e6e3da', pricePerLitre: 7, stats: { cuttings: 0.5 } },
+  { id: 'bark', name: 'Orchid bark', color: '#a4623a', pricePerLitre: 9, stats: { bloom: 0.45 } },
+  { id: 'sphagnum', name: 'Sphagnum moss', color: '#9fb37a', pricePerLitre: 14, stats: { crossing: 0.45, bloom: 0.1 } },
   { id: 'charcoal', name: 'Horticultural charcoal', color: '#26262a', pricePerLitre: 30, stats: { mutation: 0.05 } },
+  { id: 'vermiculite', name: 'Vermiculite', color: '#c9a86a', pricePerLitre: 8, stats: { speed: 0.1, bloom: 0.2 } },
+  { id: 'pumice', name: 'Pumice', color: '#b8b4aa', pricePerLitre: 9, stats: { cuttings: 0.3, bloom: 0.15 } },
+  { id: 'leafmould', name: 'Leaf mould', color: '#5e4a2c', pricePerLitre: 10, stats: { speed: 0.12, crossing: 0.15 } },
+  { id: 'kelp', name: 'Kelp meal', color: '#4f5d3a', pricePerLitre: 13, stats: { bloom: 0.3, speed: 0.1 } },
+  { id: 'ash', name: 'Volcanic ash', color: '#6b6a70', pricePerLitre: 22, stats: { mutation: 0.02, crossing: 0.2 } },
 ]
 
 export function ingredientById(id: string): Ingredient | undefined {

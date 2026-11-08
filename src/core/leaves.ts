@@ -54,6 +54,8 @@ export function emergenceLeaves(genome: Genome, growth: number): number {
   return Math.floor(emergenceOf(genome, growth))
 }
 
+export const CUT_ONLY_IN_GREENHOUSE = 'Leaves can only be cut in the greenhouse.'
+
 /** Whether this leaf can be cut: it has to be open, and a plant keeps at least two leaves. */
 export function cutProblem(genome: Genome, state: LeafState, growth: number, index: number): string | null {
   if (growth < REWARDS.cuttingMinGrowth) return `Leaves can be cut from growth ${REWARDS.cuttingMinGrowth}.`

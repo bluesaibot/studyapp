@@ -3,6 +3,7 @@ import { fundGrowthAmount, fundSunAmount } from '../../core/rewards'
 import type { WeekGoalView, WeekReward, WeekState } from '../../core/week'
 
 export function rewardText(reward: WeekReward): string {
+  if (reward.amount) return `+${reward.amount} ☀`
   if (reward.bromeliad) return 'Bromeliad seed'
   if (reward.gold) return 'Golden pot'
   if (reward.kind === 'seed') return `${reward.rarity[0].toUpperCase()}${reward.rarity.slice(1)} seed`

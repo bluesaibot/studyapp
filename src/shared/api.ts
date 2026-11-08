@@ -24,6 +24,10 @@ export interface PlantRow {
   soil: Soil | null
   /** Studied sun until it can bloom again. */
   restLeft: number
+  /** Its flowers are shut: it is resting, or in the greenhouse. */
+  flowersClosed: boolean
+  /** Seed pods on it, from green and new (0) to brown and ripe (1). */
+  pods: number | null
   leaves: LeafState
   /** Where it came from, when it grew from your own plants. */
   origin: { kind: 'cutting' | 'cross'; parentA: number; parentB: number | null } | null
@@ -33,6 +37,8 @@ export interface PlantRow {
 export interface BedRow {
   id: number
   position: number
+  x: number
+  y: number
   soil: Soil | null
 }
 
@@ -61,6 +67,8 @@ export interface PollinationRow {
   plantB: number | null
   paid: number
   needed: number
+  /** Sun on top of `needed` that pops the ripe seeds. */
+  popNeeded: number
   /** Whether the sun earned while studying goes in here. */
   studyFill: boolean
 }
@@ -97,6 +105,8 @@ export interface Snapshot {
   soilStock: Record<string, number>
   mixes: MixRow[]
   ownedPots: number[]
+  /** The plant you last clicked on, for the small window. */
+  shownPlantId: number | null
   nursery: NurseryRow[]
   pollinations: PollinationRow[]
   week: WeekState
@@ -116,7 +126,7 @@ export interface StudyApi {
   returnFromBreak(): Promise<void>
   end(): Promise<void>
   dismissSummary(): Promise<void>
-  water(plantId: number): Promise<void>
+  water(plantId: number, amount?: number): Promise<void>
   useFund(fundId: number, plantId: number | null): Promise<void>
   setCurrentPlant(plantId: number): Promise<void>
   renamePlant(plantId: number, name: string): Promise<void>
@@ -135,7 +145,8 @@ export interface StudyApi {
   takeCutting(plantId: number, leafIndex: number): Promise<void>
   sow(nurseryId: number, bedId: number | null): Promise<void>
   digUp(plantId: number): Promise<void>
-  buyBed(): Promise<void>
+  buyBed(x: number, y: number): Promise<void>
+  setShownPlant(plantId: number): Promise<void>
   moveToGreenhouse(plantId: number): Promise<void>
   moveToGarden(plantId: number, bedId: number | null): Promise<void>
   swapBeds(bedA: number, bedB: number): Promise<void>
@@ -207,6 +218,7 @@ export const API_METHODS = [
   'sow',
   'digUp',
   'buyBed',
+  'setShownPlant',
   'moveToGreenhouse',
   'moveToGarden',
   'startPollination',

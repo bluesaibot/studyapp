@@ -25,7 +25,7 @@ import {
 } from './calendar'
 import { crossChance, crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
 import { cutLeaf, cutProblem, NO_LEAF_STATE, regrowLeaves, regrowthOf, rollNewLeaves } from './leaves'
-import { GOLD_POT, emergenceOf, growthFromSun, sproutCost, type Genome } from './plants'
+import { bedsTouch, GOLD_POT, emergenceOf, growthCost, growthFromSun, plantRarity, sproutCost, type Genome } from './plants'
 import { POT_DESIGNS } from './pots'
 import { bagPrice, ingredientById, mixStats, recipeStats, SOIL_WOBBLE } from './soil'
 import { varietiesOf, varietyById } from './varieties'
@@ -37,7 +37,7 @@ function growthPastGate(genome: Genome, gate: number): number {
 }
 import { NO_MISTAKE, recordAnswer } from './mistakes'
 import { buildWeek, WEEK_COMPLETE, WEEK_COMPLETE_REWARDS, weekCompleteReward, WEEK_GOALS, weekKey } from './week'
-import { dayTier, focusSun, questionSun, REWARDS, rollFund, todoSun } from './rewards'
+import { bedCost, dayTier, focusSun, questionSun, REWARDS, rollFund, todoSun } from './rewards'
 import { createScheduler } from './scheduler'
 import { createRng } from './rng'
 import {
@@ -282,7 +282,11 @@ describe('plants', () => {
     const rare = { ...plain, variegation: 'albo' as const, crossed: true }
     expect(sproutCost(plain, false)).toBe(REWARDS.sproutSeedSun)
     expect(sproutCost(plain, true)).toBeLessThan(sproutCost(plain, false))
-    expect(sproutCost(rare, false)).toBeGreaterThanOrEqual(sproutCost(plain, false) * 2)
+    expect(sproutCost(rare, false)).toBe(sproutCost(plain, false) * 8)
+    expect(growthCost(rare)).toBe(2)
+    expect(growthCost(plain)).toBe(1)
+    expect(plantRarity({ ...plain, variegation: 'albo' })).toBe(3)
+    expect(plantRarity(makeGenome('guzmania', 3, 'rare', 'lingulata'))).toBe(2)
   })
 
   it('spreads sun over the sprouting cost and then grows one to one', () => {
@@ -290,6 +294,8 @@ describe('plants', () => {
     expect(growthFromSun(0, 100, 100)).toBeCloseTo(SPROUT_GROWTH)
     expect(growthFromSun(0, 130, 100)).toBeCloseTo(SPROUT_GROWTH + 30)
     expect(growthFromSun(150, 10, 400)).toBeCloseTo(160)
+    expect(growthFromSun(150, 10, 400, 2)).toBeCloseTo(155)
+    expect(growthFromSun(0, 130, 100, 2)).toBeCloseTo(SPROUT_GROWTH + 15)
   })
 
   it('reports progress towards the next stage', () => {
@@ -561,12 +567,26 @@ describe('leaves', () => {
   })
 })
 
+describe('garden beds', () => {
+  it('touch in the four directions only', () => {
+    const middle = { x: 0, y: 0 }
+    for (const next of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]) expect(bedsTouch(middle, next)).toBe(true)
+    expect(bedsTouch(middle, { x: 1, y: 1 })).toBe(false)
+    expect(bedsTouch(middle, middle)).toBe(false)
+    expect(bedsTouch(middle, { x: 2, y: 0 })).toBe(false)
+  })
+
+  it('cost a little more each time', () => {
+    expect([1, 2, 3, 4].map(bedCost)).toEqual([300, 400, 500, 600])
+  })
+})
+
 describe('soil', () => {
   it('fixes the kinds of effect by ingredient and wobbles only a little', () => {
     const recipe = { humus: 5, perlite: 5 }
     const target = recipeStats(recipe)
-    expect(target.speed).toBeCloseTo(0.25)
-    expect(target.cuttings).toBeCloseTo(0.35)
+    expect(target.speed).toBeCloseTo(0.1)
+    expect(target.cuttings).toBeCloseTo(0.25)
     expect(target.mutation).toBe(0)
     for (let seed = 0; seed < 100; seed += 1) {
       const mix = mixStats(recipe, createRng(seed))
@@ -770,6 +790,7 @@ describe('calendar', () => {
       expect(todoSun(5)).toBe(12)
       expect(todoSun(10)).toBe(22)
       expect(todoSun(100)).toBe(REWARDS.todoMaxSun)
+      expect(topicReward(150).sun).toBe(1500)
       expect(topicReward(null).sun).toBe(REWARDS.topicMinSun)
       expect(topicReward(30).sun).toBe(300)
       expect(topicReward(1000).sun).toBe(REWARDS.topicMaxSun)
@@ -788,7 +809,7 @@ describe('calendar', () => {
     expect(resolveEffort(TODO_LEVELS, 2, 'unknown')).toEqual({ effort: 2, level: null })
     expect(TODO_LEVELS.map((level) => todoSun(level.hours))).toEqual([4, 8, 12, 22])
     const rewards = TOPIC_LEVELS.map((level) => topicReward(level.hours))
-    expect(rewards.map((reward) => reward.sun)).toEqual([30, 100, 300, 600])
+    expect(rewards.map((reward) => reward.sun)).toEqual([30, 100, 300, 600, 1500])
     expect(rewards[3].items.some((item) => item.gold)).toBe(true)
   })
 
