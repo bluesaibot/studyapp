@@ -34,7 +34,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "app": "electron-vite build && electron-builder --dir",
-    "release": "electron-vite build && electron-builder --mac dmg",
+    "release": "electron-vite build && electron-builder --mac dmg --publish never",
     "shots": "electron-vite build && electron scripts/screenshots.cjs",
     "flow": "electron-vite build && electron scripts/study-flow.cjs",
     "start": "electron-vite preview",
