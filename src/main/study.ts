@@ -106,9 +106,28 @@ function startOfDay(now: Date): number {
 
 export type Study = ReturnType<typeof openStudy>
 
+const QUESTION_PAID_SCHEMA = `
+CREATE TABLE question_paid (
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  date TEXT NOT NULL,
+  paid REAL NOT NULL,
+  PRIMARY KEY (item_id, date)
+);
+`
+
 export function openStudy(database: Db, scheduler: Scheduler, today: () => string) {
   const db = database.raw
   db.exec(SCHEMA)
+  // Questions answered today before this rule existed were paid in full under the old one.
+  const hasPaidTable = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'question_paid'").get()
+  if (!hasPaidTable) {
+    db.exec(QUESTION_PAID_SCHEMA)
+    db.prepare(
+      `INSERT INTO question_paid (item_id, date, paid)
+       SELECT DISTINCT r.item_id, ?, 5 FROM reviews r JOIN items i ON i.id = r.item_id
+       WHERE i.kind = 'question' AND r.reviewed_at >= ?`,
+    ).run(today(), startOfDay(new Date()))
+  }
 
   const selectItem = `SELECT i.id, i.position, i.chapter_id, c.title AS chapter_title, i.kind, i.source, i.label, i.front, i.back,
     i.times, i.status, i.options, i.fsrs, i.mistake_open
@@ -301,9 +320,30 @@ export function openStudy(database: Db, scheduler: Scheduler, today: () => strin
     })
   }
 
+  /** Makes every item new again. Sun, plants and the streak live elsewhere and stay as they are. */
+  function resetProgress(courseId: number) {
+    db.prepare(
+      `UPDATE items SET fsrs = NULL, due_at = NULL, stability = NULL, first_reviewed_at = NULL, last_reviewed_at = NULL,
+       mistake = NULL, mistake_open = 0 WHERE course_id = ?`,
+    ).run(courseId)
+  }
+
+  const paidToday = (itemId: number): number =>
+    (db.prepare('SELECT paid FROM question_paid WHERE item_id = ? AND date = ?').get(itemId, today()) as { paid: number } | undefined)?.paid ?? 0
+
+  function addPaid(itemId: number, amount: number) {
+    db.prepare(
+      `INSERT INTO question_paid (item_id, date, paid) VALUES (?, ?, ?)
+       ON CONFLICT (item_id, date) DO UPDATE SET paid = paid + excluded.paid`,
+    ).run(itemId, today(), amount)
+  }
+
   return {
     saveCourse,
     courses,
+    paidToday,
+    addPaid,
+    resetProgress,
     nextItem,
     review,
     renameCourse: (courseId: number, name: string) => {

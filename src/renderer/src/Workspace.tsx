@@ -39,6 +39,57 @@ function writeCursor(key: string, position: number) {
   }
 }
 
+function clearCursors(courseId: number) {
+  const prefixes = [`studyapp.all.${courseId}.`, `studyapp.all.questions.${courseId}.`]
+  for (const key of allCursors.keys()) {
+    if (prefixes.some((prefix) => key.startsWith(prefix))) allCursors.delete(key)
+  }
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (prefixes.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key)
+    }
+  } catch {
+    // Continuing where you stopped is only a convenience.
+  }
+}
+
+/** Starts a course over. Asks first, because the schedule cannot be brought back. */
+export function ResetProgress({ course, done }: { course: CourseRow; done: () => void }) {
+  const [asking, setAsking] = useState(false)
+  if (!asking) {
+    return (
+      <button className="button quiet" onClick={() => setAsking(true)}>
+        Reset progress
+      </button>
+    )
+  }
+  return (
+    <div className="reset-confirm" role="alertdialog" aria-label="Reset progress">
+      <p>
+        All {course.cards + course.questions} cards and questions of this course become new again, and the Fehlerliste empties.
+        Your sun, plants and streak stay as they are.
+      </p>
+      <div className="row">
+        <button
+          className="button"
+          onClick={() => {
+            void window.api.resetProgress(course.id).then(() => {
+              clearCursors(course.id)
+              setAsking(false)
+              done()
+            })
+          }}
+        >
+          Yes, reset
+        </button>
+        <button className="button quiet" onClick={() => setAsking(false)}>
+          Keep my progress
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const STATUS_NOTE: Record<NonNullable<StudyItem['status']>, string | null> = {
   ok: null,
   wrong: 'The old answer in the catalogue was wrong. Learn the correction.',
@@ -127,6 +178,7 @@ function Deck({ courseId, mode, kind, chapterId, ensureSession, answered }: Deck
   const [done, setDone] = useState(0)
   const [picked, setPicked] = useState<ReadonlySet<ItemOption>>(new Set())
   const [restarts, setRestarts] = useState(0)
+  const shownAt = useRef(0)
   // A new order each time, so an answer is not remembered by its position.
   const options = useMemo(() => (item?.options ? shuffled(item.options) : null), [item])
   const rightCount = options?.filter((option) => picked.has(option) === option.correct).length ?? 0
@@ -148,6 +200,7 @@ function Deck({ courseId, mode, kind, chapterId, ensureSession, answered }: Deck
     const afterPosition = mode === 'all' ? readCursor(cursorKey) : undefined
     void window.api.nextItem({ courseId, mode, kind, chapterId, moreNew, afterPosition }).then((next) => {
       if (!current) return
+      shownAt.current = performance.now()
       setItem(next)
       setRevealed(false)
       setAnswer('')
@@ -161,7 +214,7 @@ function Deck({ courseId, mode, kind, chapterId, ensureSession, answered }: Deck
   const rate = async (rating: ReviewRating) => {
     if (!item) return
     await ensureSession()
-    await window.api.review({ itemId: item.id, rating, answer: answer || undefined })
+    await window.api.review({ itemId: item.id, rating, answer: answer || undefined, thinkingMs: performance.now() - shownAt.current })
     if (mode === 'all') writeCursor(cursorKey, item.position)
     answered()
     setDone((count) => count + 1)
@@ -371,6 +424,7 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
   const chapters = chapterList?.courseId === courseId ? chapterList.rows : []
   const [chapterId, setChapterId] = useState<number | null>(null)
   const [dipOpen, setDipOpen] = useState(false)
+  const [resets, setResets] = useState(0)
   const course = courses.find((row) => row.id === courseId)
   const plant = snapshot.plants.find((row) => row.isCurrent)
 
@@ -461,12 +515,23 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
           </select>
         )}
       </nav>
+      {course && (
+        <div className="workspace-reset">
+          <ResetProgress
+            course={course}
+            done={() => {
+              refreshCourses()
+              setResets((count) => count + 1)
+            }}
+          />
+        </div>
+      )}
       <div className="workspace-body">
         {tab === 'read' ? (
           <Reader key={courseId} courseId={courseId} chapters={chapters} chapterId={chapterId} setChapterId={setChapterId} />
         ) : (
           <Deck
-            key={`${courseId}-${tab}`}
+            key={`${courseId}-${tab}-${resets}`}
             courseId={courseId}
             mode={tab === 'mistakes' ? 'mistakes' : tab === 'easy' ? 'easy' : tab === 'all' || tab === 'allQuestions' ? 'all' : 'review'}
             kind={tab === 'cards' || tab === 'easy' || tab === 'all' ? 'card' : tab === 'questions' || tab === 'allQuestions' ? 'question' : undefined}

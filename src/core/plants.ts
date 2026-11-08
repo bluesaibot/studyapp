@@ -1,30 +1,44 @@
 import { between, createRng, pickWeighted } from './rng'
 import type { Rarity } from './rewards'
 
-export type LeafShape = 'heart' | 'arrow' | 'oval' | 'lance' | 'round'
-export type Habit = 'upright' | 'trailing'
+export type LeafShape = 'heart' | 'arrow' | 'oval' | 'lance' | 'round' | 'strap'
+/** How a species grows: up a pole, in hanging vines, around a hoop, as a clump, or as a rosette. */
+export type GrowthForm = 'pole' | 'trail' | 'hoop' | 'clump' | 'rosette'
 export type Variegation = 'none' | 'marbled' | 'sectoral' | 'aurea' | 'albo' | 'mint'
 
 export interface Species {
   id: string
   name: string
   shape: LeafShape
-  habit: Habit
+  form: GrowthForm
   hue: readonly [number, number]
   fenestration: readonly [number, number]
   flower: string
+  /** Only grows from good seeds. */
+  rare?: boolean
 }
 
-export const SPECIES: readonly Species[] = [
-  { id: 'monstera', name: 'Monstera', shape: 'heart', habit: 'upright', hue: [135, 155], fenestration: [0.55, 1], flower: '#f3efd8' },
-  { id: 'philodendron', name: 'Philodendron', shape: 'arrow', habit: 'upright', hue: [110, 150], fenestration: [0, 0.2], flower: '#e7d8c0' },
-  { id: 'pothos', name: 'Pothos', shape: 'heart', habit: 'trailing', hue: [95, 125], fenestration: [0, 0], flower: '#e9edc9' },
-  { id: 'alocasia', name: 'Alocasia', shape: 'arrow', habit: 'upright', hue: [150, 175], fenestration: [0, 0], flower: '#efe6d0' },
-  { id: 'anthurium', name: 'Anthurium', shape: 'heart', habit: 'upright', hue: [125, 150], fenestration: [0, 0], flower: '#d8402f' },
-  { id: 'begonia', name: 'Begonia', shape: 'round', habit: 'upright', hue: [85, 130], fenestration: [0, 0], flower: '#f2a7b8' },
-  { id: 'calathea', name: 'Calathea', shape: 'oval', habit: 'upright', hue: [140, 170], fenestration: [0, 0], flower: '#f4f0e6' },
-  { id: 'hoya', name: 'Hoya', shape: 'lance', habit: 'trailing', hue: [105, 140], fenestration: [0, 0], flower: '#f6d9de' },
+/** New species go at the end of their list, so a seed always keeps the species it stands for. */
+export const COMMON_SPECIES: readonly Species[] = [
+  { id: 'monstera', name: 'Monstera', shape: 'heart', form: 'pole', hue: [135, 155], fenestration: [0.55, 1], flower: '#f3efd8' },
+  { id: 'philodendron', name: 'Philodendron', shape: 'arrow', form: 'pole', hue: [110, 150], fenestration: [0, 0], flower: '#e7d8c0' },
+  { id: 'pothos', name: 'Pothos', shape: 'heart', form: 'trail', hue: [95, 125], fenestration: [0, 0], flower: '#e9edc9' },
+  { id: 'alocasia', name: 'Alocasia', shape: 'arrow', form: 'clump', hue: [150, 175], fenestration: [0, 0], flower: '#efe6d0' },
+  { id: 'anthurium', name: 'Anthurium', shape: 'heart', form: 'clump', hue: [125, 150], fenestration: [0, 0], flower: '#d8402f' },
+  { id: 'begonia', name: 'Begonia', shape: 'round', form: 'clump', hue: [85, 130], fenestration: [0, 0], flower: '#f2a7b8' },
+  { id: 'calathea', name: 'Calathea', shape: 'oval', form: 'clump', hue: [140, 170], fenestration: [0, 0], flower: '#f4f0e6' },
+  { id: 'hoya', name: 'Hoya', shape: 'oval', form: 'hoop', hue: [105, 140], fenestration: [0, 0], flower: '#f6d9de' },
 ]
+
+export const BROMELIADS: readonly Species[] = [
+  { id: 'neoregelia', name: 'Neoregelia', shape: 'strap', form: 'rosette', hue: [95, 130], fenestration: [0, 0], flower: '#d3225a', rare: true },
+  { id: 'guzmania', name: 'Guzmania', shape: 'strap', form: 'rosette', hue: [110, 140], fenestration: [0, 0], flower: '#e2391f', rare: true },
+  { id: 'vriesea', name: 'Vriesea', shape: 'strap', form: 'rosette', hue: [120, 150], fenestration: [0, 0], flower: '#e8452c', rare: true },
+  { id: 'aechmea', name: 'Aechmea', shape: 'strap', form: 'rosette', hue: [150, 175], fenestration: [0, 0], flower: '#ec5f9c', rare: true },
+  { id: 'tillandsia', name: 'Tillandsia', shape: 'strap', form: 'rosette', hue: [90, 120], fenestration: [0, 0], flower: '#ef6aa6', rare: true },
+]
+
+export const SPECIES: readonly Species[] = [...COMMON_SPECIES, ...BROMELIADS]
 
 export function speciesById(id: string): Species {
   return SPECIES.find((species) => species.id === id) ?? SPECIES[0]
@@ -73,8 +87,13 @@ export function makeGenome(speciesId: string, seed: number, rarity: Rarity): Gen
   }
 }
 
-export function speciesFromSeed(seed: number): Species {
-  return SPECIES[seed % SPECIES.length]
+/** Chance out of 100 that a seed of this rarity grows a bromeliad. */
+const BROMELIAD_CHANCE: Record<Rarity, number> = { common: 0, uncommon: 8, rare: 60 }
+
+export function speciesFromSeed(seed: number, rarity: Rarity = 'common'): Species {
+  // A higher part of the seed decides, so this stays independent of which common species it would be.
+  if (Math.floor(seed / 16) % 100 < BROMELIAD_CHANCE[rarity]) return BROMELIADS[Math.floor(seed / 1600) % BROMELIADS.length]
+  return COMMON_SPECIES[seed % COMMON_SPECIES.length]
 }
 
 export const STAGES = [

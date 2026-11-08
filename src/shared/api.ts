@@ -68,6 +68,7 @@ export interface StudyApi {
   chapterBody(chapterId: number): Promise<string>
   nextItem(request: DeckRequest): Promise<StudyItem | null>
   review(request: ReviewRequest): Promise<void>
+  resetProgress(courseId: number): Promise<void>
 }
 
 export const API_METHODS = [
@@ -96,6 +97,7 @@ export const API_METHODS = [
   'chapterBody',
   'nextItem',
   'review',
+  'resetProgress',
 ] as const
 
 export const SNAPSHOT_CHANNEL = 'snapshot'

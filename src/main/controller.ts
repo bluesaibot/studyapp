@@ -14,6 +14,7 @@ import {
   type SessionSettings,
   type SessionState,
 } from '../core/session'
+import { questionSun } from '../core/rewards'
 import { computeStreak, localDate } from '../core/streak'
 import type { SessionSummary, Snapshot } from '../shared/api'
 import type { ReviewRequest } from '../shared/study'
@@ -154,7 +155,14 @@ export class Controller {
   /** Records an answer; inside a session it also earns sun, whatever the answer was. */
   review(request: ReviewRequest) {
     const kind = this.study.review(request)
-    if (kind) this.update((state) => rewardReview(state, kind))
+    if (!kind || !this.session) return
+    if (kind === 'card') {
+      this.update((state) => rewardReview(state, kind))
+      return
+    }
+    const base = questionSun(request.thinkingMs ?? 0, this.study.paidToday(request.itemId))
+    this.study.addPaid(request.itemId, base)
+    this.update((state) => rewardReview(state, kind, base))
   }
 
   private mutate(change: () => void) {

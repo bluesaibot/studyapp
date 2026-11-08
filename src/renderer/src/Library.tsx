@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { CourseRow, ImportReport } from '../../shared/study'
-import type { StudyTab } from './Workspace'
+import { ResetProgress, type StudyTab } from './Workspace'
 
 type ImportResult = ImportReport | { error: string } | null
 
@@ -105,6 +105,7 @@ export function Library({ courses, refresh, open, close }: LibraryProps) {
               <button className="button quiet" disabled={busy} onClick={() => void run(() => window.api.reimportCourse(course.id))}>
                 Update from Lernskript
               </button>
+              {course.reviewed > 0 && <ResetProgress course={course} done={refresh} />}
             </div>
           </article>
         ))}

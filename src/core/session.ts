@@ -151,8 +151,11 @@ export function markDip(state: SessionState): SessionState {
 }
 
 /** Any answer earns sun, right or wrong: doing the work is what counts. */
-export function rewardReview(state: SessionState, kind: 'card' | 'question'): SessionState {
-  const base = kind === 'card' ? REWARDS.sunPerCard : REWARDS.sunPerOpenQuestion
+export function rewardReview(
+  state: SessionState,
+  kind: 'card' | 'question',
+  base: number = kind === 'card' ? REWARDS.sunPerCard : REWARDS.sunPerOpenQuestion,
+): SessionState {
   const earned = base * dayTier(dayMinutes(state)).sunMultiplier * state.streakMultiplier
   return {
     ...state,

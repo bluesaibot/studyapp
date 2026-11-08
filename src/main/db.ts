@@ -165,7 +165,7 @@ export function openDb(dataDir: string) {
     if ((fund.kind === 'fertilizer' || fund.kind === 'pot') && plantId === null) return
 
     if (fund.kind === 'seed') {
-      plantSeed(makeGenome(speciesFromSeed(fund.seed).id, fund.seed, fund.rarity), courseTag)
+      plantSeed(makeGenome(speciesFromSeed(fund.seed, fund.rarity).id, fund.seed, fund.rarity), courseTag)
     } else if (fund.kind === 'sun') {
       addToWallet(fundSunAmount(fund.rarity))
     } else if (fund.kind === 'fertilizer') {

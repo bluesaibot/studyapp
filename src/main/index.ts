@@ -184,6 +184,7 @@ app.whenReady().then(async () => {
     chapterBody: (chapterId: number) => study.chapterBody(chapterId),
     nextItem: (request: Parameters<typeof study.nextItem>[0]) => study.nextItem(request),
     review: (request: Parameters<Controller['review']>[0]) => controller.review(request),
+    resetProgress: (courseId: number) => study.resetProgress(courseId),
   }
   for (const method of API_METHODS) {
     const handler = handlers[method] as (...args: unknown[]) => unknown

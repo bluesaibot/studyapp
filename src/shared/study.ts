@@ -71,4 +71,6 @@ export interface ReviewRequest {
   rating: ReviewRating
   /** What was typed for an open question, kept for AI grading later. */
   answer?: string
+  /** How long the item was on screen before this answer. */
+  thinkingMs?: number
 }

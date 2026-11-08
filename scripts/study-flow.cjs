@@ -48,8 +48,13 @@ app.whenReady().then(async () => {
     await wait(300)
     const text = await js('document.body.innerText')
     console.log(`[${name}]`, text.replace(/\s+/g, ' ').slice(0, 170))
-    const image = await main.webContents.capturePage()
-    writeFileSync(join(outDir, `${name}.png`), image.toPNG())
+    // Capturing fails now and then when the window is covered. A missing picture is not a failed check.
+    try {
+      const image = await main.webContents.capturePage()
+      writeFileSync(join(outDir, `${name}.png`), image.toPNG())
+    } catch (error) {
+      console.log(`  no picture for ${name}: ${error.message}`)
+    }
   }
   const expect = (label, condition, detail) => {
     console.log(condition ? 'ok  ' : 'FAIL', label, detail ?? '')
@@ -306,6 +311,30 @@ app.whenReady().then(async () => {
   expect('all cards moves on to the next one', secondMeta.startsWith('2 of 28, Frage 2'), secondMeta)
   await shoot('13c-all-cards')
 
+  // Open question sun: 1 when quick, topped up to 5 after a minute, and only once a day per question.
+  const sunBonus = async (itemId, thinkingMs) => {
+    const before = (await api('getSnapshot()')).session.earnedSun
+    await api(`review({ itemId: ${itemId}, rating: 3, thinkingMs: ${thinkingMs} })`)
+    return (await api('getSnapshot()')).session.earnedSun - before
+  }
+  const multiplier = (await api('getSnapshot()')).session.streakMultiplier
+  const near = (value, expected) => Math.abs(value - expected * multiplier) < 0.5 * multiplier
+  const fresh = []
+  for (let after = 0, item; fresh.length < 9 && (item = await api(`nextItem({ courseId: ${biochem.id}, mode: 'all', kind: 'question', afterPosition: ${'${after}'} })`.replace('${after}', after))); after = item.position) {
+    if (item.isNew) fresh.push(item.id)
+  }
+  const quick = await sunBonus(fresh[0], 5000)
+  const quickAgain = await sunBonus(fresh[0], 5000)
+  const toppedUp = await sunBonus(fresh[0], 70000)
+  const thirdTime = await sunBonus(fresh[0], 70000)
+  expect('a quick answer pays 1 sun', near(quick, 1), quick)
+  expect('the same quick answer pays nothing more', near(quickAgain, 0), quickAgain)
+  expect('a minute with it tops up to the full 5', near(toppedUp, 4), toppedUp)
+  expect('after that it pays nothing more today', near(thirdTime, 0), thirdTime)
+  expect('another question pays its full 5', near(await sunBonus(fresh[1], 70000), 5))
+  // Just enough garden sun for the watering step, which has to carry a seed past the sprout stage.
+  for (const id of fresh.slice(2, 5)) await sunBonus(id, 70000)
+
   // All open questions: only questions, in order, past the daily limit, and separate from the card deck.
   await js(`[...document.querySelectorAll('.tab')].find((b) => b.textContent === 'All open questions').click()`)
   await wait(700)
@@ -343,6 +372,30 @@ app.whenReady().then(async () => {
   expect('the card deck keeps its place', cardsAfter.startsWith('2 of 28') && cardsBack.startsWith('2 of 28'), cardsBack)
   await shoot('13d-all-questions')
 
+  // Reset: asks first, then every item is new again, and sun and plants stay as they were.
+  const beforeReset = await api('getSnapshot()')
+  const courseBeforeReset = (await api('courses()')).find((c) => c.id === biochem.id)
+  await click('Reset progress')
+  await wait(300)
+  expect('reset asks first', (await api('courses()')).find((c) => c.id === biochem.id).reviewed === courseBeforeReset.reviewed)
+  await shoot('13e-reset-question')
+  await click('Keep my progress')
+  await wait(200)
+  expect('keep changes nothing', (await api('courses()')).find((c) => c.id === biochem.id).reviewed === courseBeforeReset.reviewed)
+  await click('Reset progress')
+  await wait(200)
+  await click('Yes, reset')
+  await wait(600)
+  const afterReset = await api('getSnapshot()')
+  const courseAfterReset = (await api('courses()')).find((c) => c.id === biochem.id)
+  expect('reset empties progress and the Fehlerliste', courseAfterReset.reviewed === 0 && courseAfterReset.mistakes === 0, JSON.stringify({ was: courseBeforeReset.reviewed }))
+  expect('reset leaves plants alone', JSON.stringify(afterReset.plants.map((p) => p.id)) === JSON.stringify(beforeReset.plants.map((p) => p.id)) && afterReset.plants[0].growth >= beforeReset.plants[0].growth)
+  expect('reset leaves sun alone', afterReset.wallet >= beforeReset.wallet && afterReset.session.earnedSun >= beforeReset.session.earnedSun)
+  const zellbioAfter = (await api('courses()')).find((c) => c.id === cell.id)
+  expect('reset touches only this course', zellbioAfter.reviewed > 0, zellbioAfter.reviewed)
+  const restarted = await js(`document.querySelector('.deck-meta').textContent`)
+  expect('the deck starts over after a reset', restarted.startsWith('1 of 28') && restarted.includes('new'), restarted)
+
   await click('Back to timer')
   await wait(400)
   expect('back to timer shows the timer', (await js(`Boolean(document.querySelector('.session-time'))`)))
@@ -365,8 +418,7 @@ app.whenReady().then(async () => {
   for (const name of ['a', 'b', 'c', 'd', 'e']) {
     await wait(280)
     seen.push(await frameData())
-    const image = await main.webContents.capturePage()
-    writeFileSync(join(outDir, `20-growth-${name}.png`), image.toPNG())
+    await main.webContents.capturePage().then((image) => writeFileSync(join(outDir, `20-growth-${name}.png`), image.toPNG())).catch(() => {})
   }
   await wait(900)
   seen.push(await frameData())

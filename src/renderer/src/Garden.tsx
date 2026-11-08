@@ -11,7 +11,7 @@ export function fundTitle(fund: Fund): string {
 }
 
 export function fundEffect(fund: Fund): string {
-  if (fund.kind === 'seed') return 'A new plant. The rarer the seed, the likelier it is variegated.'
+  if (fund.kind === 'seed') return 'A new plant. The rarer the seed, the likelier it is variegated, and rare seeds often grow bromeliads.'
   if (fund.kind === 'fertilizer') return `Grows a plant by ${fundGrowthAmount(fund.rarity)}.`
   if (fund.kind === 'sun') return `Adds ${fundSunAmount(fund.rarity)} ☀ for the garden.`
   return 'Gives a plant a new glaze.'

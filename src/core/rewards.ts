@@ -4,7 +4,10 @@ import { pickWeighted, type Rng } from './rng'
 export const REWARDS = {
   sunPerFocusMinute: 1,
   sunPerCard: 0.5,
+  /** Paid once a day per question, and only after real time with it. */
   sunPerOpenQuestion: 5,
+  sunPerQuickQuestion: 1,
+  fullQuestionMs: 60_000,
   sunPerDrawing: 8,
   sunForDip: 3,
   sunForOnTimeReturn: 3,
@@ -59,6 +62,15 @@ export function dayTier(dayMinutes: number): DayTier {
 
 export function focusSun(dayMinutes: number, minutes: number, streakMultiplier: number): number {
   return minutes * REWARDS.sunPerFocusMinute * dayTier(dayMinutes).sunMultiplier * streakMultiplier
+}
+
+/**
+ * The base sun an open question pays now, given what it already paid today.
+ * Coming back with more time tops a quick answer up to the full amount, and it never goes below 0.
+ */
+export function questionSun(thinkingMs: number, paidToday: number): number {
+  const earned = thinkingMs >= REWARDS.fullQuestionMs ? REWARDS.sunPerOpenQuestion : REWARDS.sunPerQuickQuestion
+  return Math.max(0, earned - paidToday)
 }
 
 const FUND_KINDS = [['seed', 35], ['fertilizer', 30], ['sun', 25], ['pot', 10]] as const

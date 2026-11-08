@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NO_MISTAKE, recordAnswer } from './mistakes'
-import { dayTier, focusSun, REWARDS, rollFund } from './rewards'
+import { dayTier, focusSun, questionSun, REWARDS, rollFund } from './rewards'
 import { createScheduler } from './scheduler'
 import { createRng } from './rng'
 import {
@@ -16,6 +16,7 @@ import {
 } from './session'
 import { computeStreak, localDate, multiplierFor } from './streak'
 import {
+  BROMELIADS,
   FLOWERING_GROWTH,
   flowerProgress,
   leafEmergence,
@@ -24,6 +25,7 @@ import {
   MAX_LEAVES,
   nextStageProgress,
   SPECIES,
+  speciesFromSeed,
   SPROUT_GROWTH,
   stageIndex,
 } from './plants'
@@ -251,6 +253,32 @@ describe('plant growth drawing', () => {
   })
 })
 
+describe('species from seeds', () => {
+  const seeds = Array.from({ length: 4000 }, (_, i) => i * 7 + 3)
+  const bromeliads = new Set(BROMELIADS.map((species) => species.id))
+
+  it('keeps every common seed on the species it stood for before bromeliads came', () => {
+    const before = ['monstera', 'philodendron', 'pothos', 'alocasia', 'anthurium', 'begonia', 'calathea', 'hoya']
+    for (const seed of seeds) expect(speciesFromSeed(seed).id).toBe(before[seed % 8])
+  })
+
+  it('makes bromeliads rare: never from a common seed, often from a rare one', () => {
+    const share = (rarity: 'common' | 'uncommon' | 'rare') =>
+      seeds.filter((seed) => bromeliads.has(speciesFromSeed(seed, rarity).id)).length / seeds.length
+    expect(share('common')).toBe(0)
+    expect(share('uncommon')).toBeGreaterThan(0.04)
+    expect(share('uncommon')).toBeLessThan(0.14)
+    expect(share('rare')).toBeGreaterThan(0.5)
+    expect(share('rare')).toBeLessThan(0.7)
+  })
+
+  it('reaches every bromeliad, and a seed always gives the same plant', () => {
+    const grown = new Set(seeds.map((seed) => speciesFromSeed(seed, 'rare').id))
+    for (const species of BROMELIADS) expect(grown).toContain(species.id)
+    expect(speciesFromSeed(1234, 'rare').id).toBe(speciesFromSeed(1234, 'rare').id)
+  })
+})
+
 describe('study rewards and the mistake list', () => {
   it('earns sun for a wrong answer exactly like a right one', () => {
     const state = startSession('Bio', DEFAULT_SETTINGS, 1, 0)
@@ -258,6 +286,21 @@ describe('study rewards and the mistake list', () => {
     expect(after.earnedSun).toBe(REWARDS.sunPerOpenQuestion)
     expect(after.questionsAnswered).toBe(1)
     expect(rewardReview(state, 'card').cardsReviewed).toBe(1)
+  })
+
+  it('pays an open question in full only after a minute, and once a day', () => {
+    expect(questionSun(REWARDS.fullQuestionMs, 0)).toBe(REWARDS.sunPerOpenQuestion)
+    expect(questionSun(REWARDS.fullQuestionMs - 1, 0)).toBe(REWARDS.sunPerQuickQuestion)
+    expect(questionSun(REWARDS.fullQuestionMs, REWARDS.sunPerOpenQuestion)).toBe(0)
+    expect(questionSun(1000, REWARDS.sunPerQuickQuestion)).toBe(0)
+  })
+
+  it('tops a quick answer up to the full amount, never above, and never takes sun away', () => {
+    expect(REWARDS.sunPerQuickQuestion + questionSun(REWARDS.fullQuestionMs, REWARDS.sunPerQuickQuestion)).toBe(REWARDS.sunPerOpenQuestion)
+    const state = startSession('Bio', DEFAULT_SETTINGS, 1, 0)
+    const after = rewardReview(state, 'question', questionSun(1000, REWARDS.sunPerOpenQuestion))
+    expect(after.earnedSun).toBe(0)
+    expect(after.questionsAnswered).toBe(1)
   })
 
   it('clears a mistake after two good answers on two later days', () => {

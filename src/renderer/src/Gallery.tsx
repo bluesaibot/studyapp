@@ -13,7 +13,7 @@ export function Gallery() {
           {growths.map((growth, column) => {
             const genome: Genome = {
               ...makeGenome(species.id, 1000 + row * 37 + column * 11, 'common'),
-              variegation: KINDS[(row + column) % KINDS.length],
+              variegation: column === 4 ? KINDS[1 + (row % (KINDS.length - 1))] : 'none',
             }
             return <PlantView key={growth} genome={genome} growth={growth} pot={row} />
           })}

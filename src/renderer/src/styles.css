@@ -738,6 +738,24 @@ kbd {
   margin-left: 0.35rem;
 }
 
+.workspace-reset {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 2rem;
+  font-size: 0.85rem;
+}
+
+.reset-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 34rem;
+  font-size: 0.95rem;
+  background: rgb(255 255 255 / 0.6);
+  border-left: 5px solid var(--sun);
+  padding: 0.7rem 1rem;
+}
+
 /* Lernskript text */
 .reader {
   display: grid;
