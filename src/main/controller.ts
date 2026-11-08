@@ -41,6 +41,7 @@ export class Controller {
   private appliedSun = 0
   private lastTickAt = 0
   private lastPersistAt = 0
+  private shownDate = localDate(new Date())
   private timer: NodeJS.Timeout | null = null
 
   constructor(
@@ -81,6 +82,14 @@ export class Controller {
       week: this.week.state(new Date()),
       calendar: this.calendar.state(),
     }
+  }
+
+  /** Past midnight the app shows the new day, and on a Monday the new week, without being touched. */
+  refreshIfNewDay(now = new Date()) {
+    const date = localDate(now)
+    if (date === this.shownDate) return
+    this.shownDate = date
+    this.publish()
   }
 
   private publish() {
@@ -231,15 +240,15 @@ export class Controller {
   toggleTodo = (todoId: number) => this.mutate(() => this.calendar.toggleTodo(todoId, new Date()))
   removeTodo = (todoId: number) => this.mutate(() => this.calendar.removeTodo(todoId))
   setCalendarSettings = (settings: Parameters<Calendar['setSettings']>[0]) => this.mutate(() => this.calendar.setSettings(settings))
-  addTopic = (name: string, finishesWith: Parameters<Calendar['addTopic']>[1], effort: number | null) => this.mutate(() => this.calendar.addTopic(name, finishesWith, effort))
+  addTopic = (name: string, finishesWith: Parameters<Calendar['addTopic']>[1], effort: number | null, level: string | null) => this.mutate(() => this.calendar.addTopic(name, finishesWith, effort, level))
   renameTopic = (topicId: number, name: string) => this.mutate(() => this.calendar.renameTopic(topicId, name))
-  setTopicPinned = (topicId: number, pinned: boolean) => this.mutate(() => this.calendar.setTopicPinned(topicId, pinned))
-  setTopicEffort = (topicId: number, effort: number | null) => this.mutate(() => this.calendar.setTopicEffort(topicId, effort))
+  setMainTopic = (topicId: number) => this.mutate(() => this.calendar.setMainTopic(topicId))
+  setTopicEffort = (topicId: number, effort: number | null, level: string | null) => this.mutate(() => this.calendar.setTopicEffort(topicId, effort, level))
   completeTopic = (topicId: number) => this.mutate(() => this.calendar.completeTopic(topicId, new Date()))
   setTopicFinish = (topicId: number, finishesWith: Parameters<Calendar['setTopicFinish']>[1]) => this.mutate(() => this.calendar.setTopicFinish(topicId, finishesWith))
   removeTopic = (topicId: number) => this.mutate(() => this.calendar.removeTopic(topicId))
   setTodoTopic = (todoId: number, topic: string | null) => this.mutate(() => this.calendar.setTodoTopic(todoId, topic))
-  setTodoEffort = (todoId: number, effort: number | null) => this.mutate(() => this.calendar.setTodoEffort(todoId, effort))
+  setTodoEffort = (todoId: number, effort: number | null, level: string | null) => this.mutate(() => this.calendar.setTodoEffort(todoId, effort, level))
   setEventTopic = (eventId: number, topic: string | null, courseId: number | null) => this.mutate(() => this.calendar.setEventTopic(eventId, topic, courseId))
   /** What should be announced right now; each thing only once. */
   notificationsDue = (now: Date) => this.calendar.takeNotifications(now)

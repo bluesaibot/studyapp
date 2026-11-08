@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f8ee"/>
+      <stop offset="1" stop-color="#d5e8dc"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#7cc48c"/>
+      <stop offset="1" stop-color="#3f9264"/>
+    </linearGradient>
+    <clipPath id="leafShape">
+      <path id="outline" d="M512 196 C 668 262 776 396 768 548 C 760 700 640 790 512 790 C 384 790 264 700 256 548 C 248 396 356 262 512 196 Z"/>
+    </clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <path d="M512 780 C 512 820 500 850 474 876" fill="none" stroke="#3f7f58" stroke-width="30" stroke-linecap="round"/>
+  <g clip-path="url(#leafShape)">
+    <rect x="240" y="180" width="560" height="630" fill="url(#leaf)"/>
+    <path d="M512 196 L512 800 L800 800 L800 196 Z" fill="#17392f" opacity="0.07"/>
+    <path d="M640 300 C 700 330 760 410 760 500 C 720 490 680 440 660 400 C 640 370 630 330 640 300 Z" fill="#d9f0d4" opacity="0.85"/>
+    <ellipse cx="348" cy="660" rx="52" ry="30" fill="#d9f0d4" opacity="0.7" transform="rotate(-28 348 660)"/>
+  </g>
+  <path d="M512 236 L512 400" stroke="#2f7350" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="424" cy="520" r="30" fill="#17392f"/>
+  <circle cx="600" cy="520" r="30" fill="#17392f"/>
+  <circle cx="434" cy="510" r="10" fill="#fff"/>
+  <circle cx="610" cy="510" r="10" fill="#fff"/>
+  <path d="M478 572 Q512 612 546 572" fill="none" stroke="#17392f" stroke-width="16" stroke-linecap="round"/>
+  <ellipse cx="370" cy="582" rx="38" ry="24" fill="#f2a7b8" opacity="0.75"/>
+  <ellipse cx="654" cy="582" rx="38" ry="24" fill="#f2a7b8" opacity="0.75"/>
+</svg>

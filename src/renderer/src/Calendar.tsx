@@ -19,6 +19,9 @@ import {
   type Todo,
   type TopicView,
   workedText,
+  TODO_LEVELS,
+  TOPIC_LEVELS,
+  type EffortLevel,
 } from '../../core/calendar'
 import { localDate } from '../../core/streak'
 import type { Snapshot } from '../../shared/api'
@@ -121,42 +124,74 @@ function topicRewardText(topic: TopicView): string {
   return [`+${topic.reward.sun} ☀`, ...topic.reward.items.map(rewardText)].join(', ')
 }
 
-/** Hours for one todo, changeable at any time. Saved when you leave the field. */
-function TodoEffort({ todo }: { todo: Todo }) {
+const HOURS = 'hours'
+
+/** Hours when you can guess them, or a size when you cannot. It reports every change. */
+function EffortPicker({ levels, effort, level, name, placeholder, onChange }: { levels: readonly EffortLevel[]; effort: number | null; level: string | null; name: string; placeholder: string; onChange: (effort: number | null, level: string | null) => void }) {
+  const [mode, setMode] = useState(level ?? HOURS)
+  const [text, setText] = useState(level || effort === null ? '' : String(effort).replace('.', ','))
   return (
-    <label className="todo-effort">
-      <input
-        key={String(todo.effort)}
-        className="cal-effort"
-        inputMode="decimal"
-        aria-label={`Hours for ${todo.title}`}
-        placeholder="0"
-        defaultValue={todo.effort === null ? '' : String(todo.effort).replace('.', ',')}
-        onBlur={(event) => void window.api.setTodoEffort(todo.id, parseEffort(event.target.value))}
-      />{' '}
-      h
-    </label>
+    <span className="effort-picker">
+      <select
+        aria-label={`Effort of ${name}`}
+        value={mode}
+        onChange={(event) => {
+          const next = event.target.value
+          setMode(next)
+          setText('')
+          if (next === HOURS) onChange(null, null)
+          else onChange(null, next)
+        }}
+      >
+        <option value={HOURS}>Hours</option>
+        {levels.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}, about {option.hours} h
+          </option>
+        ))}
+      </select>
+      {mode === HOURS && (
+        <label>
+          <input
+            className="cal-effort"
+            inputMode="decimal"
+            aria-label={`Hours for ${name}`}
+            placeholder={placeholder}
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value)
+              onChange(parseEffort(event.target.value), null)
+            }}
+          />{' '}
+          h
+        </label>
+      )}
+    </span>
   )
+}
+
+function TodoEffort({ todo }: { todo: Todo }) {
+  return <EffortPicker levels={TODO_LEVELS} effort={todo.effort} level={todo.effortLevel} name={todo.title} placeholder="2,5" onChange={(effort, level) => void window.api.setTodoEffort(todo.id, effort, level)} />
 }
 
 function AddTopicTodo({ topic }: { topic: string }) {
   const [title, setTitle] = useState('')
-  const [effort, setEffort] = useState('')
+  const [size, setSize] = useState<{ effort: number | null; level: string | null }>({ effort: null, level: null })
+  const [round, setRound] = useState(0)
   return (
     <form
       className="topic-add-todo"
       onSubmit={(event) => {
         event.preventDefault()
         if (!title.trim()) return
-        void window.api.addTodo({ title, due: null, topic, effort: parseEffort(effort) })
+        void window.api.addTodo({ title, due: null, topic, ...size })
         setTitle('')
-        setEffort('')
+        setSize({ effort: null, level: null })
+        setRound(round + 1)
       }}
     >
       <input type="text" className="topic-todo-title" lang="de" aria-label={`New todo for ${topic}`} placeholder="Add a todo" value={title} onChange={(event) => setTitle(event.target.value)} />
-      <label className="todo-effort">
-        Hours <input className="cal-effort" inputMode="decimal" aria-label={`Hours for the new todo of ${topic}`} placeholder="2,5" value={effort} onChange={(event) => setEffort(event.target.value)} /> h
-      </label>
+      <EffortPicker key={round} levels={TODO_LEVELS} effort={null} level={null} name={`the new todo of ${topic}`} placeholder="2,5" onChange={(effort, level) => setSize({ effort, level })} />
       <button className="button quiet" type="submit" disabled={!title.trim()}>
         Add
       </button>
@@ -182,11 +217,12 @@ function TopicCard({ topic, todos }: { topic: TopicView; todos: readonly Todo[] 
           }}
         />
         {completed && <strong>Completed ✓</strong>}
+        {topic.pinned && !completed && <strong>Main topic</strong>}
       </div>
       <p className="week-reward">
         {topic.state}
         {topic.effortOpen > 0 && `. ${effortText(topic.effortOpen)} of todos and exams open`}
-        {Boolean(topic.workedMinutes) && `. ${workedText(topic.workedMinutes ?? 0)} worked${topic.effort ? ` of ${String(topic.effort).replace('.', ',')} h` : ''}`}
+        {Boolean(topic.workedMinutes) && `. ${workedText(topic.workedMinutes ?? 0)} worked${topic.effort ? ` of ${topic.effortLevel ? 'about ' : ''}${String(topic.effort).replace('.', ',')} h` : ''}`}
       </p>
       {topic.todosTotal > 0 && (
         <div className="progress" role="progressbar" aria-label="Todos done" aria-valuenow={Math.round((topic.todosDone / topic.todosTotal) * 100)}>
@@ -209,19 +245,9 @@ function TopicCard({ topic, todos }: { topic: TopicView; todos: readonly Todo[] 
       {!completed && (
         <>
           <div className="row">
-            <label className="finishes">
-              Hours{' '}
-              <input
-                key={String(topic.effort)}
-                className="cal-effort"
-                inputMode="decimal"
-                aria-label="Hours for the whole topic"
-                placeholder="40"
-                defaultValue={topic.effort === null ? '' : String(topic.effort).replace('.', ',')}
-                onBlur={(event) => void window.api.setTopicEffort(topic.id, parseEffort(event.target.value))}
-              />{' '}
-              h
-            </label>
+            <span className="finishes">
+              Effort <EffortPicker levels={TOPIC_LEVELS} effort={topic.effort} level={topic.effortLevel} name={topic.name} placeholder="40" onChange={(effort, level) => void window.api.setTopicEffort(topic.id, effort, level)} />
+            </span>
             <FinishesSelect value={topic.finishesWith} onChange={(value) => void window.api.setTopicFinish(topic.id, value)} />
           </div>
           {topic.finishesWith !== 'never' && <p className="week-reward">Completing pays: {topicRewardText(topic)}</p>}
@@ -233,9 +259,11 @@ function TopicCard({ topic, todos }: { topic: TopicView; todos: readonly Todo[] 
             topic.missing.length > 0 && <p className="hint">Still needed: {topic.missing.join(', ')}.</p>
           )}
           <div className="row">
-            <button className="link" onClick={() => void window.api.setTopicPinned(topic.id, !topic.pinned)}>
-              {topic.pinned ? 'No longer my main topic' : 'Make this my main topic'}
-            </button>
+            {!topic.pinned && (
+              <button className="link" onClick={() => void window.api.setMainTopic(topic.id)}>
+                Make this my main topic
+              </button>
+            )}
             <button className="link" onClick={() => void window.api.removeTopic(topic.id)}>
               Remove topic
             </button>
@@ -249,7 +277,8 @@ function TopicCard({ topic, todos }: { topic: TopicView; todos: readonly Todo[] 
 function TopicsTab({ topics, todos }: { topics: readonly TopicView[]; todos: readonly Todo[] }) {
   const [name, setName] = useState('')
   const [finishes, setFinishes] = useState<FinishesWith>('subtasks')
-  const [effort, setEffort] = useState('')
+  const [size, setSize] = useState<{ effort: number | null; level: string | null }>({ effort: null, level: null })
+  const [round, setRound] = useState(0)
   const open = topics.filter((topic) => topic.completedAt === null).sort((a, b) => Number(b.ready) - Number(a.ready))
   const done = topics.filter((topic) => topic.completedAt !== null)
   return (
@@ -259,21 +288,22 @@ function TopicsTab({ topics, todos }: { topics: readonly TopicView[]; todos: rea
         onSubmit={(event) => {
           event.preventDefault()
           if (!name.trim()) return
-          void window.api.addTopic(name, finishes, parseEffort(effort))
+          void window.api.addTopic(name, finishes, size.effort, size.level)
           setName('')
-          setEffort('')
+          setSize({ effort: null, level: null })
+          setRound(round + 1)
         }}
       >
         <input type="text" className="cal-title" lang="de" aria-label="New topic" placeholder="Add a topic, for example Bachelorarbeit, Vorlesungsprüfungen or Labore" value={name} onChange={(event) => setName(event.target.value)} />
-        <label className="finishes">
-          Hours <input className="cal-effort" inputMode="decimal" aria-label="Hours for the new topic" placeholder="40" value={effort} onChange={(event) => setEffort(event.target.value)} /> h
-        </label>
+        <span className="finishes">
+          Effort <EffortPicker key={round} levels={TOPIC_LEVELS} effort={null} level={null} name="the new topic" placeholder="40" onChange={(effort, level) => setSize({ effort, level })} />
+        </span>
         <FinishesSelect value={finishes} onChange={setFinishes} />
         <button className="button" type="submit" disabled={!name.trim()}>
           Add topic
         </button>
       </form>
-      <p className="hint">Hours are the whole topic's work. They set what completing it pays, with the best rewards from 60 h.</p>
+      <p className="hint">Set a topic's hours, or pick a size if you cannot guess them. That sets what completing it pays, however it completes, with the best rewards from 60 h. Your main topic is only highlighted and pays the same.</p>
       {open.length === 0 && done.length === 0 && <p className="empty">Your topics show up here, each with its own todos and reward.</p>}
       <ul className="topic-grid">
         {open.map((topic) => (
@@ -339,6 +369,14 @@ const KIND_LABEL: Record<EventKind, string> = { exam: 'Exam', deadline: 'Deadlin
 const TOPICS_LIST = 'calendar-topics'
 
 /** Type anything; topics you used before and your courses are offered as you type. */
+function TopicField({ topic, setTopic }: { topic: string; setTopic: (value: string) => void }) {
+  return (
+    <label>
+      Topic <input type="text" className="cal-topic" lang="de" list={TOPICS_LIST} placeholder="any topic" value={topic} onChange={(event) => setTopic(event.target.value)} />
+    </label>
+  )
+}
+
 function TopicEffort({ topic, effort, setTopic, setEffort }: { topic: string; effort: string; setTopic: (value: string) => void; setEffort: (value: string) => void }) {
   return (
     <>
@@ -394,24 +432,29 @@ function AddTodo({ today }: { today: string }) {
   const [title, setTitle] = useState('')
   const [due, setDue] = useState(today)
   const [topic, setTopic] = useState('')
-  const [effort, setEffort] = useState('')
+  const [size, setSize] = useState<{ effort: number | null; level: string | null }>({ effort: null, level: null })
+  const [round, setRound] = useState(0)
   return (
     <form
       className="cal-form"
       onSubmit={(event) => {
         event.preventDefault()
         if (!title.trim()) return
-        void window.api.addTodo({ title, due: due || null, topic: topic.trim() || null, effort: parseEffort(effort) })
+        void window.api.addTodo({ title, due: due || null, topic: topic.trim() || null, ...size })
         setTitle('')
         setTopic('')
-        setEffort('')
+        setSize({ effort: null, level: null })
+        setRound(round + 1)
       }}
     >
       <input type="text" className="cal-title" lang="de" aria-label="New todo" placeholder="What needs doing?" value={title} onChange={(event) => setTitle(event.target.value)} />
       <label>
         Due <input type="date" aria-label="Due date, optional" value={due} onChange={(event) => setDue(event.target.value)} />
       </label>
-      <TopicEffort topic={topic} effort={effort} setTopic={setTopic} setEffort={setEffort} />
+      <TopicField topic={topic} setTopic={setTopic} />
+      <span>
+        Effort <EffortPicker key={round} levels={TODO_LEVELS} effort={null} level={null} name="the new todo" placeholder="2,5" onChange={(effort, level) => setSize({ effort, level })} />
+      </span>
       <button className="button" type="submit" disabled={!title.trim()}>
         Add todo
       </button>
@@ -443,7 +486,6 @@ function TodosTab({ snapshot, today }: { snapshot: Snapshot; today: string }) {
                 </div>
                 <div className="row">
                   <TopicSelect value={todo.topic} topics={topics} onChange={(topic) => void window.api.setTodoTopic(todo.id, topic)} />
-                  <span className="todo-effort">Hours</span>
                   <TodoEffort todo={todo} />
                   <button className="link" onClick={() => void window.api.removeTodo(todo.id)}>
                     Remove

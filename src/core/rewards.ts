@@ -41,7 +41,7 @@ export const REWARDS = {
   /** A todo pays a little; finishing its topic is where the real reward is. */
   todoBaseSun: 2,
   todoSunPerHour: 2,
-  todoMaxSun: 10,
+  todoMaxSun: 22,
   topicSunPerHour: 10,
   topicMinSun: 20,
   topicMaxSun: 600,

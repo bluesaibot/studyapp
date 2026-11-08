@@ -9,6 +9,10 @@ import {
   DEFAULT_CALENDAR_SETTINGS,
   dueNotifications,
   effortText,
+  resolveEffort,
+  TODO_LEVELS,
+  TOPIC_LEVELS,
+  type TopicRow,
   examOver,
   GRADE_REWARDS,
   monthDays,
@@ -32,7 +36,7 @@ function growthPastGate(genome: Genome, gate: number): number {
   return growth
 }
 import { NO_MISTAKE, recordAnswer } from './mistakes'
-import { buildWeek, WEEK_COMPLETE, WEEK_GOALS, weekKey } from './week'
+import { buildWeek, WEEK_COMPLETE, WEEK_COMPLETE_REWARDS, weekCompleteReward, WEEK_GOALS, weekKey } from './week'
 import { dayTier, focusSun, questionSun, REWARDS, rollFund, todoSun } from './rewards'
 import { createScheduler } from './scheduler'
 import { createRng } from './rng'
@@ -592,6 +596,8 @@ describe('weekly goals', () => {
   it('starts weeks on Monday', () => {
     expect(weekKey(new Date(2026, 10, 8))).toBe('2026-11-02')
     expect(weekKey(new Date(2026, 10, 9))).toBe('2026-11-09')
+    expect(weekKey(new Date(2026, 10, 8, 23, 59, 59))).toBe('2026-11-02')
+    expect(weekKey(new Date(2026, 10, 9, 0, 0, 0))).toBe('2026-11-09')
     expect(weekKey(new Date(2026, 10, 2))).toBe('2026-11-02')
   })
 
@@ -607,7 +613,12 @@ describe('weekly goals', () => {
   it('keeps the top rewards rare seeds that grow bromeliads', () => {
     const seed = bromeliadSeed(createRng(4))
     expect(speciesFromSeed(seed, 'rare').rare).toBe(true)
-    expect(WEEK_COMPLETE.reward.bromeliad).toBe(true)
+    const weeks = Array.from({ length: 200 }, (_, i) => weekKey(new Date(2026, 10, 9 + i * 7)))
+    const rewards = weeks.map(weekCompleteReward)
+    expect(new Set(rewards.map((reward) => `${reward.kind}${reward.bromeliad ?? ''}`)).size).toBe(WEEK_COMPLETE_REWARDS.length)
+    expect(rewards.every((reward) => reward.rarity === 'rare')).toBe(true)
+    expect(weekCompleteReward('2026-11-09')).toEqual(weekCompleteReward('2026-11-09'))
+    expect(WEEK_COMPLETE.title).toContain('all tasks')
     expect(WEEK_GOALS.find((goal) => goal.id === 'study-30h')!.reward.bromeliad).toBe(true)
   })
 })
@@ -648,7 +659,7 @@ describe('calendar', () => {
     const items = buildBriefing(
       state({
         events: [exam(), exam({ id: 2, title: 'Mykologie', date: '2026-11-29' })],
-        todos: [{ id: 1, title: 'Altes To-do', due: '2026-11-01', doneAt: null, topic: null, effort: null }, { id: 2, title: 'Wäsche', due: '2026-11-08', doneAt: null, topic: null, effort: null }],
+        todos: [{ id: 1, title: 'Altes To-do', due: '2026-11-01', doneAt: null, topic: null, effort: null, effortLevel: null }, { id: 2, title: 'Wäsche', due: '2026-11-08', doneAt: null, topic: null, effort: null, effortLevel: null }],
       }),
       [{ id: 1, name: 'Bio', fresh: 10, ready: 5 }],
       '2026-11-08',
@@ -703,16 +714,16 @@ describe('calendar', () => {
     })
 
     it('holds an exam topic open until the grade decides', () => {
-      const topic = { id: 1, name: 'Thesis', finishesWith: 'exam' as const, effort: null, completedAt: null }
+      const topic = { id: 1, name: 'Thesis', finishesWith: 'exam' as const, effort: null, effortLevel: null, completedAt: null }
       expect(buildTopicView(topic, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '10:00').ready).toBe(false)
       expect(buildTopicView(topic, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '08:00').state).toContain('Exam on')
     })
   })
 
   describe('topics', () => {
-    const todo = (id: number, done: boolean, effort: number | null = null) => ({ id, title: 't', due: null, doneAt: done ? 1 : null, topic: 'Thesis', effort })
+    const todo = (id: number, done: boolean, effort: number | null = null) => ({ id, title: 't', due: null, doneAt: done ? 1 : null, topic: 'Thesis', effort, effortLevel: null })
     const view = (finishesWith: FinishesWith, events: CalendarEvent[], todos: ReturnType<typeof todo>[], completedAt: number | null = null) =>
-      buildTopicView({ id: 1, name: 'thesis', finishesWith, effort: 30, completedAt }, events, todos)
+      buildTopicView({ id: 1, name: 'thesis', finishesWith, effort: 30, effortLevel: null, completedAt }, events, todos)
     const ownExam = (over: Partial<CalendarEvent>) => exam({ topic: 'Thesis', ...over })
 
     it('can be completed when all todos are done', () => {
@@ -738,7 +749,7 @@ describe('calendar', () => {
     })
 
     it('waits for the grade after the exam is written', () => {
-      const written = buildTopicView({ id: 1, name: 'Thesis', finishesWith: 'exam', effort: null, completedAt: null }, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '10:00')
+      const written = buildTopicView({ id: 1, name: 'Thesis', finishesWith: 'exam', effort: null, effortLevel: null, completedAt: null }, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '10:00')
       expect(written.ready).toBe(false)
       expect(written.state).toContain('waiting for your grade')
       expect(written.missing).toEqual(['Grade not entered yet'])
@@ -756,6 +767,8 @@ describe('calendar', () => {
     it('pays far more for finishing a topic than for its todos, scaling with effort', () => {
       expect(todoSun(null)).toBe(2)
       expect(todoSun(2)).toBe(6)
+      expect(todoSun(5)).toBe(12)
+      expect(todoSun(10)).toBe(22)
       expect(todoSun(100)).toBe(REWARDS.todoMaxSun)
       expect(topicReward(null).sun).toBe(REWARDS.topicMinSun)
       expect(topicReward(30).sun).toBe(300)
@@ -766,6 +779,24 @@ describe('calendar', () => {
       expect(topicReward(100).items.some((item) => item.bromeliad)).toBe(true)
       expect(topicReward(100).items.some((item) => item.gold)).toBe(true)
     })
+  })
+
+  it('lets a size stand in for hours and pay what those hours would', () => {
+    expect(resolveEffort(TODO_LEVELS, null, 'big')).toEqual({ effort: 5, level: 'big' })
+    expect(resolveEffort(TOPIC_LEVELS, 99, 'medium')).toEqual({ effort: 10, level: 'medium' })
+    expect(resolveEffort(TODO_LEVELS, 2.5, null)).toEqual({ effort: 2.5, level: null })
+    expect(resolveEffort(TODO_LEVELS, 2, 'unknown')).toEqual({ effort: 2, level: null })
+    expect(TODO_LEVELS.map((level) => todoSun(level.hours))).toEqual([4, 8, 12, 22])
+    const rewards = TOPIC_LEVELS.map((level) => topicReward(level.hours))
+    expect(rewards.map((reward) => reward.sun)).toEqual([30, 100, 300, 600])
+    expect(rewards[3].items.some((item) => item.gold)).toBe(true)
+  })
+
+  it('pays the same for a main topic, whatever completes it', () => {
+    const base = { id: 1, name: 'A', effort: 30, effortLevel: null, completedAt: null }
+    const reward = (extra: Partial<TopicRow>) => buildTopicView({ ...base, finishesWith: 'subtasks', ...extra }, [], []).reward
+    expect(reward({ pinned: true })).toEqual(reward({ pinned: false }))
+    expect(reward({ finishesWith: 'exam' })).toEqual(reward({ finishesWith: 'subtasks' }))
   })
 
   it('reads effort as typed, with a comma or a point, and ignores anything else', () => {
@@ -793,9 +824,9 @@ describe('calendar', () => {
   })
 
   it('keeps the pinned topic in the briefing every day, behind only an exam within days', () => {
-    const thesis = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, completedAt: null, pinned: true, workedMinutes: 750 }, [], [
-      { id: 1, title: 'Methoden', due: null, doneAt: 1, topic: 'Bachelorarbeit', effort: null },
-      { id: 2, title: 'Diskussion', due: null, doneAt: null, topic: 'Bachelorarbeit', effort: null },
+    const thesis = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, effortLevel: null, completedAt: null, pinned: true, workedMinutes: 750 }, [], [
+      { id: 1, title: 'Methoden', due: null, doneAt: 1, topic: 'Bachelorarbeit', effort: null, effortLevel: null },
+      { id: 2, title: 'Diskussion', due: null, doneAt: null, topic: 'Bachelorarbeit', effort: null, effortLevel: null },
     ])
     expect(buildBriefing(state({ topics: [thesis] }), [], '2026-11-08')[0].text).toBe('Bachelorarbeit: 1 of 2 todos open, 12 h 30 worked.')
     const soon = exam({ date: '2026-11-09' })
@@ -806,7 +837,7 @@ describe('calendar', () => {
     expect(briefing[2]).toContain('Später')
     const done = { ...thesis, completedAt: 5 }
     expect(buildBriefing(state({ topics: [done] }), [], '2026-11-08').map((item) => item.text).join()).not.toContain('Bachelorarbeit')
-    const empty = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, completedAt: null, pinned: true }, [], [])
+    const empty = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, effortLevel: null, completedAt: null, pinned: true }, [], [])
     expect(buildBriefing(state({ topics: [empty] }), [], '2026-11-08')[0].text).toContain('next step')
   })
 

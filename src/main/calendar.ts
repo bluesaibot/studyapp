@@ -1,4 +1,4 @@
-import { buildTopicView, canEnterGrade, clockTime, DEFAULT_CALENDAR_SETTINGS, dueNotifications, GRADE_REWARDS, type CalendarEvent, type CalendarSettings, type CalendarState, type EventKind, type FinishesWith, type Todo, type TopicRow } from '../core/calendar'
+import { buildTopicView, canEnterGrade, clockTime, DEFAULT_CALENDAR_SETTINGS, dueNotifications, GRADE_REWARDS, resolveEffort, TODO_LEVELS, TOPIC_LEVELS, type CalendarEvent, type CalendarSettings, type CalendarState, type EventKind, type FinishesWith, type Todo, type TopicRow } from '../core/calendar'
 import { todoSun } from '../core/rewards'
 import { localDate } from '../core/streak'
 import type { Db } from './db'
@@ -63,10 +63,12 @@ export function openCalendar(database: Db) {
     })
   }
 
+  if (!todoColumns.includes('effort_level')) db.exec('ALTER TABLE todos ADD COLUMN effort_level TEXT')
   const topicColumns = (db.prepare('PRAGMA table_info(topics)').all() as { name: string }[]).map((column) => column.name)
   if (!topicColumns.includes('effort')) db.exec('ALTER TABLE topics ADD COLUMN effort REAL')
   if (!topicColumns.includes('completed_at')) db.exec('ALTER TABLE topics ADD COLUMN completed_at INTEGER')
 
+  if (!topicColumns.includes('effort_level')) db.exec('ALTER TABLE topics ADD COLUMN effort_level TEXT')
   if (!topicColumns.includes('pinned')) db.exec('ALTER TABLE topics ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0')
   // The thesis is the big thing, so it starts out there once. Removing it later is final.
   if (!database.getMeta('thesisTopicAdded')) {
@@ -92,12 +94,21 @@ export function openCalendar(database: Db) {
   const events = (): CalendarEvent[] =>
     db.prepare('SELECT id, title, date, kind, course_id AS courseId, grade, time, topic, effort FROM calendar_events ORDER BY date, time IS NULL, time, id').all() as CalendarEvent[]
   const todos = (): Todo[] =>
-    db.prepare('SELECT id, title, due, done_at AS doneAt, topic, effort FROM todos ORDER BY done_at IS NOT NULL, due IS NULL, due, id').all() as Todo[]
+    db.prepare('SELECT id, title, due, done_at AS doneAt, topic, effort, effort_level AS effortLevel FROM todos ORDER BY done_at IS NOT NULL, due IS NULL, due, id').all() as Todo[]
   const settings = (): CalendarSettings => ({ ...DEFAULT_CALENDAR_SETTINGS, ...JSON.parse(database.getMeta('calendarSettings') ?? '{}') })
   const topicRows = () =>
-    db.prepare(`SELECT id, name, finishes_with AS finishesWith, effort, completed_at AS completedAt, pinned = 1 AS pinned,
+    db.prepare(`SELECT id, name, finishes_with AS finishesWith, effort, effort_level AS effortLevel, completed_at AS completedAt, pinned = 1 AS pinned,
        COALESCE((SELECT SUM(focus_ms) FROM sessions WHERE sessions.task = topics.name), 0) / 60000 AS workedMinutes
        FROM topics ORDER BY pinned DESC, name`).all() as TopicRow[]
+  /** When the main topic is finished or removed, the biggest open one takes over. */
+  function keepOneMain() {
+    const hasMain = db.prepare('SELECT 1 FROM topics WHERE pinned = 1 AND completed_at IS NULL').get()
+    if (hasMain) return
+    const next = db.prepare('SELECT id FROM topics WHERE completed_at IS NULL ORDER BY effort IS NULL, effort DESC, id LIMIT 1').get() as { id: number } | undefined
+    db.prepare('UPDATE topics SET pinned = CASE WHEN id = ? THEN 1 ELSE 0 END').run(next?.id ?? -1)
+  }
+  keepOneMain()
+
   const state = (now = new Date()): CalendarState => {
     const allEvents = events()
     const allTodos = todos()
@@ -126,9 +137,10 @@ export function openCalendar(database: Db) {
       db.prepare('UPDATE calendar_events SET grade = ?, graded_at = ? WHERE id = ?').run(grade, now.getTime(), eventId)
       for (const reward of GRADE_REWARDS[grade]) grantReward(database, reward)
     },
-    addTodo({ title, due, topic, effort }: { title: string; due: string | null; topic: string | null; effort: number | null }) {
+    addTodo({ title, due, topic, effort, level }: { title: string; due: string | null; topic: string | null; effort: number | null; level: string | null }) {
       const name = title.trim()
-      if (name) db.prepare('INSERT INTO todos (title, due, topic, effort) VALUES (?, ?, ?, ?)').run(name, due || null, useTopic(topic, 'subtasks'), effort)
+      const size = resolveEffort(TODO_LEVELS, effort, level)
+      if (name) db.prepare('INSERT INTO todos (title, due, topic, effort, effort_level) VALUES (?, ?, ?, ?, ?)').run(name, due || null, useTopic(topic, 'subtasks'), size.effort, size.level)
     },
     /** Pays once, the first time it is ticked; unticking takes nothing back and ticking again adds nothing. */
     toggleTodo(todoId: number, now: Date) {
@@ -140,9 +152,11 @@ export function openCalendar(database: Db) {
     removeTodo(todoId: number) {
       db.prepare('DELETE FROM todos WHERE id = ?').run(todoId)
     },
-    addTopic(name: string, finishesWith: FinishesWith, effort: number | null) {
+    addTopic(name: string, finishesWith: FinishesWith, effort: number | null, level: string | null) {
       const topic = useTopic(name, finishesWith)
-      if (topic && effort !== null) db.prepare('UPDATE topics SET effort = ? WHERE name = ?').run(effort, topic)
+      const size = resolveEffort(TOPIC_LEVELS, effort, level)
+      if (topic && size.effort !== null) db.prepare('UPDATE topics SET effort = ?, effort_level = ? WHERE name = ?').run(size.effort, size.level, topic)
+      keepOneMain()
     },
     renameTopic(topicId: number, name: string) {
       const wanted = name.trim()
@@ -156,12 +170,13 @@ export function openCalendar(database: Db) {
         db.prepare('UPDATE sessions SET task = ? WHERE task = ?').run(wanted, topic.name)
       })
     },
-    /** Only one topic is the big one at a time. */
-    setTopicPinned(topicId: number, pinned: boolean) {
-      db.prepare('UPDATE topics SET pinned = CASE WHEN id = ? THEN ? ELSE 0 END').run(topicId, pinned ? 1 : 0)
+    /** Exactly one topic is the main one, so it only ever moves to another. */
+    setMainTopic(topicId: number) {
+      db.prepare('UPDATE topics SET pinned = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE EXISTS (SELECT 1 FROM topics WHERE id = ? AND completed_at IS NULL)').run(topicId, topicId)
     },
-    setTopicEffort(topicId: number, effort: number | null) {
-      db.prepare('UPDATE topics SET effort = ? WHERE id = ? AND completed_at IS NULL').run(effort, topicId)
+    setTopicEffort(topicId: number, effort: number | null, level: string | null) {
+      const size = resolveEffort(TOPIC_LEVELS, effort, level)
+      db.prepare('UPDATE topics SET effort = ?, effort_level = ? WHERE id = ? AND completed_at IS NULL').run(size.effort, size.level, topicId)
     },
     /** By hand, once everything it needs has happened. Pays once, and then it stays completed. */
     completeTopic(topicId: number, now: Date) {
@@ -170,6 +185,7 @@ export function openCalendar(database: Db) {
       db.prepare('UPDATE topics SET completed_at = ? WHERE id = ?').run(now.getTime(), topicId)
       database.addToWallet(topic.reward.sun)
       for (const reward of topic.reward.items) grantReward(database, reward)
+      keepOneMain()
     },
     setTopicFinish(topicId: number, finishesWith: FinishesWith) {
       db.prepare('UPDATE topics SET finishes_with = ? WHERE id = ?').run(finishesWith, topicId)
@@ -181,12 +197,14 @@ export function openCalendar(database: Db) {
       db.prepare('UPDATE todos SET topic = NULL WHERE topic = ?').run(topic.name)
       db.prepare('UPDATE calendar_events SET topic = NULL WHERE topic = ?').run(topic.name)
       db.prepare('DELETE FROM topics WHERE id = ?').run(topicId)
+      keepOneMain()
     },
     setTodoTopic(todoId: number, topic: string | null) {
       db.prepare('UPDATE todos SET topic = ? WHERE id = ?').run(useTopic(topic, 'subtasks'), todoId)
     },
-    setTodoEffort(todoId: number, effort: number | null) {
-      db.prepare('UPDATE todos SET effort = ? WHERE id = ?').run(effort, todoId)
+    setTodoEffort(todoId: number, effort: number | null, level: string | null) {
+      const size = resolveEffort(TODO_LEVELS, effort, level)
+      db.prepare('UPDATE todos SET effort = ?, effort_level = ? WHERE id = ?').run(size.effort, size.level, todoId)
     },
     setEventTopic(eventId: number, topic: string | null, courseId: number | null) {
       db.prepare('UPDATE calendar_events SET topic = ?, course_id = ? WHERE id = ?').run(useTopic(topic, 'subtasks'), courseId, eventId)

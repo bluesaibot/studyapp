@@ -26,6 +26,8 @@ export interface Todo {
   doneAt: number | null
   topic: string | null
   effort: number | null
+  /** Set when the effort was picked as a size instead of typed in hours. */
+  effortLevel: string | null
 }
 
 /** When a topic counts as finished. "never" is for anything ongoing or recurring. */
@@ -37,8 +39,10 @@ export interface TopicRow {
   finishesWith: FinishesWith
   /** The whole topic's size in hours, which sets its reward. */
   effort: number | null
+  /** Set when the effort was picked as a size instead of typed in hours. */
+  effortLevel: string | null
   completedAt: number | null
-  /** The big thing right now: first in the list, the dropdown and the daily briefing. */
+  /** The big thing right now: first in the list, the dropdown and the daily briefing. It pays nothing extra. */
   pinned?: boolean
   /** Focus time of sessions that ran under this topic. */
   workedMinutes?: number
@@ -60,6 +64,33 @@ export interface TopicView extends TopicRow {
 export interface TopicReward {
   sun: number
   items: readonly WeekReward[]
+}
+
+export interface EffortLevel {
+  id: string
+  label: string
+  hours: number
+}
+
+/** For when the hours are hard to guess. Each size pays what its hours would. */
+export const TODO_LEVELS: readonly EffortLevel[] = [
+  { id: 'small', label: 'Small', hours: 1 },
+  { id: 'medium', label: 'Medium', hours: 3 },
+  { id: 'big', label: 'Big', hours: 5 },
+  { id: 'huge', label: 'Huge', hours: 10 },
+]
+
+export const TOPIC_LEVELS: readonly EffortLevel[] = [
+  { id: 'small', label: 'Small', hours: 3 },
+  { id: 'medium', label: 'Medium', hours: 10 },
+  { id: 'big', label: 'Big', hours: 30 },
+  { id: 'huge', label: 'Huge', hours: 60 },
+]
+
+/** A known size sets the hours, and typed hours clear the size. */
+export function resolveEffort(levels: readonly EffortLevel[], effort: number | null, level: string | null): { effort: number | null; level: string | null } {
+  const known = levels.find((row) => row.id === level)
+  return known ? { effort: known.hours, level: known.id } : { effort, level: null }
 }
 
 /** Scales with the work. The biggest topics are worth weeks of ordinary rewards. */

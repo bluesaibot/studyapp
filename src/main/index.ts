@@ -223,15 +223,15 @@ app.whenReady().then(async () => {
     addTodo: (todo: Parameters<Controller['addTodo']>[0]) => controller.addTodo(todo),
     toggleTodo: (todoId: number) => controller.toggleTodo(todoId),
     removeTodo: (todoId: number) => controller.removeTodo(todoId),
-    addTopic: (name: string, finishesWith: Parameters<Controller['addTopic']>[1], effort: number | null) => controller.addTopic(name, finishesWith, effort),
+    addTopic: (name: string, finishesWith: Parameters<Controller['addTopic']>[1], effort: number | null, level: string | null) => controller.addTopic(name, finishesWith, effort, level),
     renameTopic: (topicId: number, name: string) => controller.renameTopic(topicId, name),
-    setTopicPinned: (topicId: number, pinned: boolean) => controller.setTopicPinned(topicId, pinned),
-    setTopicEffort: (topicId: number, effort: number | null) => controller.setTopicEffort(topicId, effort),
+    setMainTopic: (topicId: number) => controller.setMainTopic(topicId),
+    setTopicEffort: (topicId: number, effort: number | null, level: string | null) => controller.setTopicEffort(topicId, effort, level),
     completeTopic: (topicId: number) => controller.completeTopic(topicId),
     setTopicFinish: (topicId: number, finishesWith: Parameters<Controller['setTopicFinish']>[1]) => controller.setTopicFinish(topicId, finishesWith),
     removeTopic: (topicId: number) => controller.removeTopic(topicId),
     setTodoTopic: (todoId: number, topic: string | null) => controller.setTodoTopic(todoId, topic),
-    setTodoEffort: (todoId: number, effort: number | null) => controller.setTodoEffort(todoId, effort),
+    setTodoEffort: (todoId: number, effort: number | null, level: string | null) => controller.setTodoEffort(todoId, effort, level),
     setEventTopic: (eventId: number, topic: string | null, courseId: number | null) => controller.setEventTopic(eventId, topic, courseId),
     setCalendarSettings: (settings: Parameters<Controller['setCalendarSettings']>[0]) => {
       controller.setCalendarSettings(settings)
@@ -256,6 +256,7 @@ app.whenReady().then(async () => {
   }
   announce()
   setInterval(announce, 60_000)
+  setInterval(() => controller.refreshIfNewDay(), 10_000)
 
   app.on('activate', showMain)
   app.on('before-quit', () => {

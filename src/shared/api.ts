@@ -160,19 +160,19 @@ export interface StudyApi {
   setEventTime(eventId: number, time: string | null): Promise<void>
   removeEvent(eventId: number): Promise<void>
   setGrade(eventId: number, grade: number): Promise<void>
-  addTodo(todo: { title: string; due: string | null; topic: string | null; effort: number | null }): Promise<void>
+  addTodo(todo: { title: string; due: string | null; topic: string | null; effort: number | null; level: string | null }): Promise<void>
   toggleTodo(todoId: number): Promise<void>
   removeTodo(todoId: number): Promise<void>
   setCalendarSettings(settings: CalendarSettings): Promise<void>
-  addTopic(name: string, finishesWith: FinishesWith, effort: number | null): Promise<void>
+  addTopic(name: string, finishesWith: FinishesWith, effort: number | null, level: string | null): Promise<void>
   renameTopic(topicId: number, name: string): Promise<void>
-  setTopicEffort(topicId: number, effort: number | null): Promise<void>
+  setTopicEffort(topicId: number, effort: number | null, level: string | null): Promise<void>
   completeTopic(topicId: number): Promise<void>
-  setTopicPinned(topicId: number, pinned: boolean): Promise<void>
+  setMainTopic(topicId: number): Promise<void>
   setTopicFinish(topicId: number, finishesWith: FinishesWith): Promise<void>
   removeTopic(topicId: number): Promise<void>
   setTodoTopic(todoId: number, topic: string | null): Promise<void>
-  setTodoEffort(todoId: number, effort: number | null): Promise<void>
+  setTodoEffort(todoId: number, effort: number | null, level: string | null): Promise<void>
   setEventTopic(eventId: number, topic: string | null, courseId: number | null): Promise<void>
 }
 
@@ -239,7 +239,7 @@ export const API_METHODS = [
   'renameTopic',
   'setTopicEffort',
   'completeTopic',
-  'setTopicPinned',
+  'setMainTopic',
   'setTopicFinish',
   'removeTopic',
   'setTodoTopic',

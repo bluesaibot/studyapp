@@ -446,6 +446,50 @@ app.whenReady().then(async () => {
   expect('the spurt ends', !seen[seen.length - 1].spurt)
   expect('leaves appear one after another, not at once', seen[0].leaves < seen[seen.length - 1].leaves, seen.map((frame) => frame.leaves).join(','))
 
+  // Last week's study and tasks no longer count: the week starts from zero by itself.
+  {
+    const weekBefore = (await api('getSnapshot()')).week
+    const taskId = weekBefore.tasks[0].id
+    const old = new (require('better-sqlite3'))(join(dataDir, 'studyapp.db'))
+    old.prepare("INSERT INTO sessions (task, date, started_at, ended_at, focus_ms) VALUES ('alt', '2020-01-06', 1578300000000, 1578300000001, 36000000)").run()
+    old.prepare("INSERT INTO week_task_done (task_id, week, done_at) VALUES (?, '2020-01-06', 1578300000000)").run(taskId)
+    old.close()
+    await api('dismissSummary()')
+    const weekAfter = (await api('getSnapshot()')).week
+    expect('old weeks do not count towards this week', weekAfter.stats.focusMinutes === weekBefore.stats.focusMinutes && weekAfter.tasks[0].doneCount === weekBefore.tasks[0].doneCount)
+    expect('finishing the week shows its reward', Boolean(weekAfter.complete.reward.kind), JSON.stringify(weekAfter.complete.reward))
+  }
+
+  // Topics: exactly one main topic, and a size in place of hours.
+  await api(`addTopic('Testthema', 'subtasks', null, 'big')`)
+  let cal = (await api('getSnapshot()')).calendar
+  const testTopic = cal.topics.find((t) => t.name === 'Testthema')
+  expect('a size sets the reward of a topic', testTopic.effort === 30 && testTopic.effortLevel === 'big' && testTopic.reward.sun === 300)
+  await api(`addTodo({ title: 'Testaufgabe', due: null, topic: 'Testthema', effort: null, level: 'huge' })`)
+  const beforeTodo = (await api('getSnapshot()')).wallet
+  const testTodo = (await api('getSnapshot()')).calendar.todos.find((t) => t.title === 'Testaufgabe')
+  expect('a size sets the hours of a todo', testTodo.effort === 10 && testTodo.effortLevel === 'huge')
+  await api(`toggleTodo(${testTodo.id})`)
+  expect('a huge todo pays like 10 hours', Math.abs((await api('getSnapshot()')).wallet - beforeTodo - 22) < 0.01)
+  await api(`setTodoEffort(${testTodo.id}, 2.5, null)`)
+  await api(`setMainTopic(${testTopic.id})`)
+  cal = (await api('getSnapshot()')).calendar
+  expect('only one topic is the main one', cal.topics.filter((t) => t.pinned).length === 1 && cal.topics.find((t) => t.pinned).id === testTopic.id)
+  const walletBeforeTopic = (await api('getSnapshot()')).wallet
+  await api(`completeTopic(${testTopic.id})`)
+  cal = (await api('getSnapshot()')).calendar
+  expect('completing pays its size, with nothing extra for being main', Math.abs((await api('getSnapshot()')).wallet - walletBeforeTopic - 300) < 0.01)
+  expect('another topic takes over as main', cal.topics.filter((t) => t.pinned && t.completedAt === null).length === 1, cal.topics.map((t) => t.name + t.pinned).join())
+  await js(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Back').click()`)
+  await wait(300)
+  await click('Topics').catch(() => {})
+  await wait(600)
+  await shoot('35-topics')
+  await js(`[...document.querySelectorAll('button')].find((b) => b.textContent === 'Back').click()`).catch(() => {})
+  await wait(300)
+  await click('Open garden')
+  await wait(400)
+
   // Shop, soil bench, beds, cutting a leaf, and pollinating next to each other, all on throwaway data.
   const place = (name) => js(`[...document.querySelectorAll('.place-tabs .tab')].find((b) => b.textContent === ${JSON.stringify(name)}).click()`)
   await place('Shop')

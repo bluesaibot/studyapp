@@ -1,4 +1,5 @@
 import type { FundKind, Rarity } from './rewards'
+import { createRng, pickWeighted } from './rng'
 import { localDate } from './streak'
 
 /**
@@ -39,10 +40,23 @@ export const WEEK_GOALS: readonly WeekGoal[] = [
 ]
 
 /** For finishing the week: the first study goal and every task. Studying alone does not get it. */
-export const WEEK_COMPLETE: { id: string; title: string; reward: WeekReward } = {
+export const WEEK_COMPLETE: { id: string; title: string } = {
   id: 'week-complete',
   title: 'Study 10 hours and finish all tasks',
-  reward: { kind: 'seed', rarity: 'rare', bromeliad: true },
+}
+
+/** Always something good, and different from week to week. */
+export const WEEK_COMPLETE_REWARDS: readonly (readonly [WeekReward, number])[] = [
+  [{ kind: 'seed', rarity: 'rare' }, 35],
+  [{ kind: 'fertilizer', rarity: 'rare' }, 30],
+  [{ kind: 'seed', rarity: 'rare', bromeliad: true }, 15],
+  [{ kind: 'pot', rarity: 'rare' }, 10],
+  [{ kind: 'sun', rarity: 'rare' }, 10],
+]
+
+/** Decided by the week, so it can be shown ahead and stays the same all week. */
+export function weekCompleteReward(week: string): WeekReward {
+  return pickWeighted(createRng(Number(week.replaceAll('-', ''))), WEEK_COMPLETE_REWARDS)
 }
 
 export const DEFAULT_TASKS: readonly { title: string; timesPerWeek: number; reward: WeekReward }[] = [
@@ -110,7 +124,7 @@ export function buildWeek(start: string, stats: WeekStats, tasks: WeekTaskView[]
       progress: tasksDone,
       target: tasks.length,
       reached: goals[0].reached && tasksDone === tasks.length,
-      reward: WEEK_COMPLETE.reward,
+      reward: weekCompleteReward(start),
     },
   }
 }

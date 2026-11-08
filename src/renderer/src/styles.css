@@ -1891,3 +1891,19 @@ kbd {
     transition: none;
   }
 }
+
+.effort-picker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.effort-picker select {
+  max-width: 11rem;
+}
+
+.effort-picker .cal-effort {
+  width: 3.6rem;
+}
