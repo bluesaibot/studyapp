@@ -13,8 +13,9 @@ npm install
 npm run dev     # development
 npm test        # logic tests
 npm run app     # builds dist/mac-arm64/StudyApp.app
+npm run release # builds the installer, dist/StudyApp-<version>-arm64.dmg
 npm run shots   # screenshots of every screen, using throwaway data
-npm run flow -- <output-folder> <lernskript-folder>...   # drives the study features on throwaway data
+npm run flow -- <output-folder> ~/Desktop/uni/biochemische_-bungen_seminar   # drives the study features on throwaway data
 ```
 
 All reward values are in `src/core/rewards.ts` and `src/core/streak.ts`.

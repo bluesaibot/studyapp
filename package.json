@@ -1,6 +1,6 @@
 {
   "name": "studyapp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Personal study app with a plant game",
   "main": "out/main/index.js",
@@ -15,14 +15,26 @@
       "output": "dist"
     },
     "mac": {
-      "target": "dir",
-      "identity": "-"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "category": "public.app-category.education"
+    },
+    "dmg": {
+      "title": "StudyApp ${version}"
     }
   },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "app": "electron-vite build && electron-builder --dir",
+    "release": "electron-vite build && electron-builder --mac dmg",
     "shots": "electron-vite build && electron scripts/screenshots.cjs",
     "flow": "electron-vite build && electron scripts/study-flow.cjs",
     "start": "electron-vite preview",

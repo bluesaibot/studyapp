@@ -2,6 +2,8 @@ import type { Genome } from '../core/plants'
 import type { Fund } from '../core/rewards'
 import type { SessionSettings, SessionState } from '../core/session'
 import type { StreakState } from '../core/streak'
+import type { CalendarSettings, CalendarState, EventKind, FinishesWith } from '../core/calendar'
+import type { WeekState } from '../core/week'
 import type { ChapterRow, CourseRow, DeckRequest, ImportReport, ReviewRequest, StudyItem } from './study'
 
 export interface PlantRow {
@@ -12,6 +14,27 @@ export interface PlantRow {
   name: string | null
   courseTag: string | null
   isCurrent: boolean
+  location: 'garden' | 'greenhouse'
+  /** Where it came from, when it grew from your own plants. */
+  origin: { kind: 'cutting' | 'cross'; parentA: number; parentB: number | null } | null
+}
+
+/** A seed or a cutting waiting for a free garden bed. */
+export interface NurseryRow {
+  id: number
+  kind: 'seed' | 'cutting'
+  genome: Genome
+  parentA: number | null
+  parentB: number | null
+}
+
+export interface PollinationRow {
+  id: number
+  plantA: number
+  /** Empty when it runs on bought pollen. */
+  plantB: number | null
+  paid: number
+  needed: number
 }
 
 export interface FundRow extends Fund {
@@ -38,6 +61,11 @@ export interface Snapshot {
   todayFocusMs: number
   lastTask: string
   settings: SessionSettings
+  gardenBeds: number
+  nursery: NurseryRow[]
+  pollinations: PollinationRow[]
+  week: WeekState
+  calendar: CalendarState
 }
 
 export interface StudyApi {
@@ -69,6 +97,37 @@ export interface StudyApi {
   nextItem(request: DeckRequest): Promise<StudyItem | null>
   review(request: ReviewRequest): Promise<void>
   resetProgress(courseId: number): Promise<void>
+  takeCutting(plantId: number): Promise<void>
+  sow(nurseryId: number): Promise<void>
+  digUp(plantId: number): Promise<void>
+  buyBed(): Promise<void>
+  moveToGreenhouse(plantId: number): Promise<void>
+  moveToGarden(plantId: number): Promise<void>
+  startPollination(plantA: number, plantB: number): Promise<void>
+  startWithPollen(plantId: number): Promise<void>
+  feedPollination(id: number, amount: number): Promise<void>
+  taskDone(taskId: number): Promise<void>
+  taskUndo(taskId: number): Promise<void>
+  addTask(title: string, timesPerWeek: number): Promise<void>
+  removeTask(taskId: number): Promise<void>
+  addEvent(event: { title: string; date: string; kind: EventKind; courseId: number | null; topic: string | null; effort: number | null; time: string | null }): Promise<void>
+  setEventTime(eventId: number, time: string | null): Promise<void>
+  removeEvent(eventId: number): Promise<void>
+  setGrade(eventId: number, grade: number): Promise<void>
+  addTodo(todo: { title: string; due: string | null; topic: string | null; effort: number | null }): Promise<void>
+  toggleTodo(todoId: number): Promise<void>
+  removeTodo(todoId: number): Promise<void>
+  setCalendarSettings(settings: CalendarSettings): Promise<void>
+  addTopic(name: string, finishesWith: FinishesWith, effort: number | null): Promise<void>
+  renameTopic(topicId: number, name: string): Promise<void>
+  setTopicEffort(topicId: number, effort: number | null): Promise<void>
+  completeTopic(topicId: number): Promise<void>
+  setTopicPinned(topicId: number, pinned: boolean): Promise<void>
+  setTopicFinish(topicId: number, finishesWith: FinishesWith): Promise<void>
+  removeTopic(topicId: number): Promise<void>
+  setTodoTopic(todoId: number, topic: string | null): Promise<void>
+  setTodoEffort(todoId: number, effort: number | null): Promise<void>
+  setEventTopic(eventId: number, topic: string | null, courseId: number | null): Promise<void>
 }
 
 export const API_METHODS = [
@@ -98,6 +157,37 @@ export const API_METHODS = [
   'nextItem',
   'review',
   'resetProgress',
+  'takeCutting',
+  'sow',
+  'digUp',
+  'buyBed',
+  'moveToGreenhouse',
+  'moveToGarden',
+  'startPollination',
+  'startWithPollen',
+  'feedPollination',
+  'taskDone',
+  'taskUndo',
+  'addTask',
+  'removeTask',
+  'addEvent',
+  'setEventTime',
+  'removeEvent',
+  'setGrade',
+  'addTodo',
+  'toggleTodo',
+  'removeTodo',
+  'setCalendarSettings',
+  'addTopic',
+  'renameTopic',
+  'setTopicEffort',
+  'completeTopic',
+  'setTopicPinned',
+  'setTopicFinish',
+  'removeTopic',
+  'setTodoTopic',
+  'setTodoEffort',
+  'setEventTopic',
 ] as const
 
 export const SNAPSHOT_CHANNEL = 'snapshot'

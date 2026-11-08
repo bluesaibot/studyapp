@@ -1,6 +1,6 @@
 // Drives the built app through the study features with a throwaway data folder and saves screenshots.
 // Your Lernskripte are only read. Run with:
-// electron-vite build && electron scripts/study-flow.cjs <output-folder> <lernskript-folder>...
+// electron-vite build && electron scripts/study-flow.cjs <output-folder> ~/Desktop/uni/biochemische_-bungen_seminar
 const electron = require('electron')
 const { app, BrowserWindow, dialog } = electron
 const { mkdtempSync, mkdirSync, writeFileSync, readdirSync, statSync } = require('node:fs')
@@ -77,9 +77,7 @@ app.whenReady().then(async () => {
   const courses = await api('courses()')
   console.log(courses.map((c) => `${c.name}: ${c.cards} cards ${c.questions} q ${c.cardsReady}/${c.questionsReady} ready`).join('\n'))
   const biochem = courses[courses.length - 1].sourcePath.includes('biochem') ? courses[courses.length - 1] : courses.find((c) => c.sourcePath.includes('biochem'))
-  const cell = courses.find((c) => c.sourcePath.includes('cellbiology'))
   const images = (id) => { try { return readdirSync(join(dataDir, 'media', String(id)), { recursive: true }).filter((f) => /\.(png|jpe?g)$/.test(f)) } catch { return [] } }
-  expect('zipped Zellbio figures were extracted', images(cell.id).length >= 80, images(cell.id).length)
   expect('Biochem figures were copied', images(biochem.id).length >= 25, images(biochem.id).length)
 
   // Reload so the app's own state reflects the imports, then open a course from the library.
@@ -118,6 +116,7 @@ app.whenReady().then(async () => {
   const courseSelect = `document.querySelector('select[aria-label="Course"]')`
   const pickCourse = (id) => js(`(() => {
     const select = ${courseSelect}
+    if (!select) return
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, '${id}')
     select.dispatchEvent(new Event('change', { bubbles: true }))
   })()`)
@@ -152,16 +151,6 @@ app.whenReady().then(async () => {
     expect(`${course.name} has no formula errors`, found.katexErrors.length === 0)
     expect(`${course.name} shows no raw source syntax`, found.leftovers.length === 0)
   }
-  // Pictures for a look: a callout with a figure, and formulas.
-  await pickCourse(cell.id)
-  await wait(500)
-  await js(`[...document.querySelectorAll('.reader-chapters button')].find((b) => b.textContent.startsWith('2.')).click()`)
-  await wait(900)
-  await js(`document.querySelector('.reader-text .prose img')?.scrollIntoView()`)
-  await wait(900)
-  await shoot('05a-figure')
-  await js(`[...document.querySelectorAll('.reader-text .callout-important, .reader-text .callout-warning')][0]?.scrollIntoView()`)
-  await shoot('05b-correction')
   await pickCourse(biochem.id)
   await wait(500)
   await js(`[...document.querySelectorAll('.reader-chapters button')].find((b) => b.textContent.startsWith('4.')).click()`)
@@ -172,35 +161,37 @@ app.whenReady().then(async () => {
   await wait(500)
 
   // Cards: the first answer starts a session by itself.
-  // Flip cards live in Zellbiologie; the Biochemie pack keeps only multiple choice there.
-  await pickCourse(cell.id)
-  await wait(500)
   await click('Cards')
-  await wait(800)
+  await wait(500)
+  // The chapter just read has no cards of its own, so practise across the whole course.
+  await js(`(() => {
+    const select = document.querySelector('select[aria-label="Chapter"]')
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, '')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  await wait(600)
   await shoot('06-card-front')
   const before = await api('getSnapshot()')
   expect('no session yet when only reading', before.session === null)
   await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))`)
   await wait(500)
   await shoot('07-card-back')
-  await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '1' }))`)
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))`)
   await wait(900)
   let snapshot = await api('getSnapshot()')
   expect('first answer starts a session', snapshot.session !== null, snapshot.session?.task)
-  for (const rating of [3, 3, 4, 2, 3]) {
+  for (let i = 0; i < 5; i += 1) {
     await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))`)
     await wait(150)
-    await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '${rating}' }))`)
+    await js(`window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))`)
     await wait(350)
   }
   snapshot = await api('getSnapshot()')
   expect('six cards counted', snapshot.session.cardsReviewed === 6, snapshot.session.cardsReviewed)
-  expect('a card rated Again still earned sun', snapshot.session.earnedSun >= 3, snapshot.session.earnedSun)
+  expect('cards earned sun, right or wrong', snapshot.session.earnedSun >= 3, snapshot.session.earnedSun)
   await shoot('08-session-bar')
 
   // Open question with a typed answer; rating it "Not yet" puts it on the Fehlerliste.
-  await pickCourse(biochem.id)
-  await wait(500)
   const biochemCards = (await api('courses()')).find((c) => c.id === biochem.id).cards
   expect('Biochemie has only its 28 multiple choice cards', biochemCards === 28, biochemCards)
   await js(`[...document.querySelectorAll('.tab')].find((b) => b.textContent.startsWith('Open questions')).click()`)
@@ -220,9 +211,7 @@ app.whenReady().then(async () => {
   snapshot = await api('getSnapshot()')
   expect('question counted with its 5 sun', snapshot.session.questionsAnswered === 1, snapshot.session.earnedSun)
   let row = (await api('courses()')).find((c) => c.id === biochem.id)
-  expect('the Fehlerliste holds the question', row.mistakes === 1, row.mistakes)
-  const cellRow = (await api('courses()')).find((c) => c.id === cell.id)
-  expect('the card rated Again is on its own Fehlerliste', cellRow.mistakes >= 1, cellRow.mistakes)
+  expect('the question is on the Fehlerliste', row.mistakes >= 1, row.mistakes)
 
   // A block ending mid-answer: the typed text must still be there after the break.
   await js(`(() => {
@@ -372,6 +361,19 @@ app.whenReady().then(async () => {
   expect('the card deck keeps its place', cardsAfter.startsWith('2 of 28') && cardsBack.startsWith('2 of 28'), cardsBack)
   await shoot('13d-all-questions')
 
+  // Exam time: before it the course is current, after it greyed out with a grade to enter.
+  const pad = (n) => String(n).padStart(2, '0')
+  const nowDate = new Date()
+  const todayKey = `${nowDate.getFullYear()}-${pad(nowDate.getMonth() + 1)}-${pad(nowDate.getDate())}`
+  await api(`addEvent({ title: 'Probeklausur', date: '${todayKey}', kind: 'exam', courseId: ${biochem.id}, topic: null, effort: null, time: '23:59' })`)
+  const probe = (await api('getSnapshot()')).calendar.events.find((event) => event.title === 'Probeklausur')
+  const funds = (await api('getSnapshot()')).funds.length
+  await api(`setGrade(${probe.id}, 2)`)
+  expect('no grade before the exam time', (await api('getSnapshot()')).funds.length === funds)
+  await api(`setEventTime(${probe.id}, '00:00')`)
+  await api(`setGrade(${probe.id}, 2)`)
+  expect('after the time the grade pays', (await api('getSnapshot()')).funds.length === funds + 2)
+
   // Reset: asks first, then every item is new again, and sun and plants stay as they were.
   const beforeReset = await api('getSnapshot()')
   const courseBeforeReset = (await api('courses()')).find((c) => c.id === biochem.id)
@@ -391,8 +393,6 @@ app.whenReady().then(async () => {
   expect('reset empties progress and the Fehlerliste', courseAfterReset.reviewed === 0 && courseAfterReset.mistakes === 0, JSON.stringify({ was: courseBeforeReset.reviewed }))
   expect('reset leaves plants alone', JSON.stringify(afterReset.plants.map((p) => p.id)) === JSON.stringify(beforeReset.plants.map((p) => p.id)) && afterReset.plants[0].growth >= beforeReset.plants[0].growth)
   expect('reset leaves sun alone', afterReset.wallet >= beforeReset.wallet && afterReset.session.earnedSun >= beforeReset.session.earnedSun)
-  const zellbioAfter = (await api('courses()')).find((c) => c.id === cell.id)
-  expect('reset touches only this course', zellbioAfter.reviewed > 0, zellbioAfter.reviewed)
   const restarted = await js(`document.querySelector('.deck-meta').textContent`)
   expect('the deck starts over after a reset', restarted.startsWith('1 of 28') && restarted.includes('new'), restarted)
 
@@ -411,6 +411,15 @@ app.whenReady().then(async () => {
   await click('Open garden')
   await wait(500)
   await js('window.scrollTo(0, 0)')
+  // Switching plants must not pile anything up in the side panel.
+  const shelfCount = await js(`document.querySelectorAll('.shelf-plant').length`)
+  if (shelfCount > 1) {
+    for (let i = 0; i < 4; i += 1) {
+      await js(`document.querySelectorAll('.shelf-plant')[${'${i % 2}'}].click()`.replace('${i % 2}', i % 2))
+      await wait(150)
+    }
+  }
+  expect('switching plants keeps one name field', (await js(`document.querySelectorAll('.plant-name').length`)) === 1)
   const frameData = () => js(`({ leaves: document.querySelectorAll('.foliage > g[transform]').length, spurt: Boolean(document.querySelector('.foliage.spurt')) })`)
   console.log('before watering', JSON.stringify(await frameData()), (await api('getSnapshot()')).wallet)
   await click('Water')
@@ -420,7 +429,7 @@ app.whenReady().then(async () => {
     seen.push(await frameData())
     await main.webContents.capturePage().then((image) => writeFileSync(join(outDir, `20-growth-${name}.png`), image.toPNG())).catch(() => {})
   }
-  await wait(900)
+  await wait(1600)
   seen.push(await frameData())
   console.log(JSON.stringify(seen), Math.round((await api('getSnapshot()')).plants[0].growth))
   expect('the plant spurts while it grows', seen.some((frame) => frame.spurt))

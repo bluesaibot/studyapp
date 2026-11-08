@@ -8,6 +8,7 @@ import {
   smoothstep,
   speciesById,
   SPROUT_GROWTH,
+  stageProgress,
   type Genome,
   type LeafShape,
   type Species,
@@ -919,6 +920,25 @@ function drawFoliage(genome: Genome, species: Species, growth: number, uid: stri
   )
 }
 
+/** The plant's growth stage and the way to the next one. Compact fits into tight bars. */
+export function PlantStage({ growth, compact = false }: { growth: number; compact?: boolean }) {
+  const { stage, next, goal, share } = stageProgress(growth)
+  const percent = Math.floor(share * 100)
+  return (
+    <div className={`plant-stage${compact ? ' compact' : ''}`}>
+      <p>
+        <strong>{stage}</strong>
+        {!compact && (next ? `, ${Math.floor(growth)} of ${goal} to ${next}` : ', fully grown')}
+      </p>
+      {next && (
+        <div className="progress" role="progressbar" aria-label={`Progress to ${next}`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+          <span style={{ width: `${percent}%` }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface PlantViewProps {
   genome: Genome
   growth: number
@@ -927,9 +947,11 @@ interface PlantViewProps {
   title?: string
   /** Set this to animate growth; without it the plant is drawn as is. */
   plantId?: number
+  /** Planted in a bed, so no pot and nothing below the soil line. */
+  inBed?: boolean
 }
 
-export function PlantView({ genome, growth, pot = 0, className, title, plantId }: PlantViewProps) {
+export function PlantView({ genome, growth, pot = 0, className, title, plantId, inBed = false }: PlantViewProps) {
   const uid = useMemo(() => `p${Math.random().toString(36).slice(2, 9)}`, [])
   const species = speciesById(genome.species)
   const { shown, spurting } = useShownGrowth(plantId, growth)
@@ -937,9 +959,9 @@ export function PlantView({ genome, growth, pot = 0, className, title, plantId }
   const foliage = useMemo(() => drawFoliage(genome, species, shown, uid), [genome, species, shown, uid])
 
   return (
-    <svg className={className} viewBox="0 0 400 500" role="img" aria-label={title ?? species.name}>
+    <svg className={className} viewBox={inBed ? '0 0 400 400' : '0 0 400 500'} role="img" aria-label={title ?? species.name}>
       <g className={`foliage${spurting ? ' spurt' : ''}`}>{foliage}</g>
-      <Pot color={POT_COLORS[pot % POT_COLORS.length]} />
+      {!inBed && <Pot color={POT_COLORS[pot % POT_COLORS.length]} />}
     </svg>
   )
 }

@@ -16,6 +16,28 @@ export const REWARDS = {
   autoGrowthShare: 0.5,
   waterCost: 10,
   waterGrowth: 15,
+  /** A plant's sex shows from this growth, the Mature stage. */
+  sexShownGrowth: 300,
+  /** A cutting is about half an hour of study. */
+  cuttingCost: 15,
+  cuttingMinGrowth: 100,
+  /** More garden beds. Sun to spend comes in at about 900 a week. */
+  bedCosts: [300, 700, 1500, 3000],
+  /** Filling the pollination bar. Across species takes far more, across families a fortune. */
+  pollinateSameSpecies: 150,
+  pollinateSameFamily: 600,
+  pollinateAcrossFamilies: 1200,
+  /** Bought pollen makes any flowering plant fertile by itself, on top of the same-species price. */
+  pollenCost: 200,
+  /** Cuttings root from this growth. */
+  newPlantGrowth: 20,
+  /** A todo pays a little; finishing its topic is where the real reward is. */
+  todoBaseSun: 2,
+  todoSunPerHour: 2,
+  todoMaxSun: 10,
+  topicSunPerHour: 10,
+  topicMinSun: 20,
+  topicMaxSun: 600,
 } as const
 
 export type Rarity = 'common' | 'uncommon' | 'rare'
@@ -81,6 +103,10 @@ export function rollFund(rng: Rng, dayMinutes: number): Fund {
     rarity: pickWeighted(rng, dayTier(dayMinutes).rarityWeights),
     seed: Math.floor(rng() * 2 ** 31),
   }
+}
+
+export function todoSun(effortHours: number | null): number {
+  return Math.min(REWARDS.todoMaxSun, REWARDS.todoBaseSun + (effortHours ?? 0) * REWARDS.todoSunPerHour)
 }
 
 export function fundSunAmount(rarity: Rarity): number {

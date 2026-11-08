@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import {
+  buildBriefing,
+  buildTopicView,
+  canEnterGrade,
+  courseForTopic,
+  courseOver,
+  daysBetween,
+  DEFAULT_CALENDAR_SETTINGS,
+  dueNotifications,
+  effortText,
+  examOver,
+  GRADE_REWARDS,
+  monthDays,
+  paceText,
+  parseEffort,
+  type CalendarEvent,
+  type CalendarState,
+  topicReward,
+  type FinishesWith,
+} from './calendar'
+import { crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
 import { NO_MISTAKE, recordAnswer } from './mistakes'
-import { dayTier, focusSun, questionSun, REWARDS, rollFund } from './rewards'
+import { buildWeek, WEEK_COMPLETE, WEEK_GOALS, weekKey } from './week'
+import { dayTier, focusSun, questionSun, REWARDS, rollFund, todoSun } from './rewards'
 import { createScheduler } from './scheduler'
 import { createRng } from './rng'
 import {
@@ -17,6 +39,7 @@ import {
 import { computeStreak, localDate, multiplierFor } from './streak'
 import {
   BROMELIADS,
+  bromeliadSeed,
   FLOWERING_GROWTH,
   flowerProgress,
   leafEmergence,
@@ -28,6 +51,7 @@ import {
   speciesFromSeed,
   SPROUT_GROWTH,
   stageIndex,
+  stageProgress,
 } from './plants'
 
 function days(start: string, offsets: number[]): string[] {
@@ -253,6 +277,18 @@ describe('plant growth drawing', () => {
   })
 })
 
+describe('stage progress', () => {
+  it('says the stage and how far it is to the next one', () => {
+    expect(stageProgress(0)).toMatchObject({ stage: 'Seed', next: 'Sprout', goal: 20, share: 0 })
+    expect(stageProgress(60)).toMatchObject({ stage: 'Sprout', next: 'Young plant', goal: 100, share: 0.5 })
+    expect(stageProgress(300)).toMatchObject({ stage: 'Mature', next: 'Flowering', goal: 700, share: 0 })
+  })
+
+  it('has nothing further to reach once flowering', () => {
+    expect(stageProgress(900)).toMatchObject({ stage: 'Flowering', next: null, goal: null, share: 1 })
+  })
+})
+
 describe('species from seeds', () => {
   const seeds = Array.from({ length: 4000 }, (_, i) => i * 7 + 3)
   const bromeliads = new Set(BROMELIADS.map((species) => species.id))
@@ -335,5 +371,312 @@ describe('scheduler', () => {
     const second = scheduler.review(good.state, 3, later)
     expect(second.dueAt).toBeGreaterThan(later.getTime())
     expect(second.stability).toBeGreaterThan(good.stability)
+  })
+})
+
+describe('breeding', () => {
+  const monstera = makeGenome('monstera', 101, 'common')
+  const pothos = makeGenome('pothos', 102, 'common')
+  const seeds = Array.from({ length: 3000 }, (_, i) => i * 13 + 5)
+  const variegated = (kind: 'marbled' | 'albo', genome = monstera) => ({ ...genome, variegation: kind })
+
+  it('makes about half of all plants female, fixed by their seed', () => {
+    const share = seeds.filter((seed) => sexOf(makeGenome('monstera', seed, 'common')) === 'female').length / seeds.length
+    expect(share).toBeGreaterThan(0.45)
+    expect(share).toBeLessThan(0.55)
+    expect(sexOf(monstera)).toBe(sexOf(monstera))
+  })
+
+  it('keeps the sex of the parent in a cutting', () => {
+    for (const seed of seeds.slice(0, 50)) expect(sexOf(cuttingGenome(monstera, seed))).toBe(sexOf(monstera))
+  })
+
+  it('charges more the further apart two plants are', () => {
+    expect(pollinationCost(monstera, makeGenome('monstera', 9, 'common'))).toBe(REWARDS.pollinateSameSpecies)
+    expect(pollinationCost(monstera, pothos)).toBe(REWARDS.pollinateSameFamily)
+    expect(pollinationCost(monstera, makeGenome('guzmania', 9, 'rare'))).toBe(REWARDS.pollinateAcrossFamilies)
+  })
+
+  it('needs two flowering plants of opposite sex', () => {
+    const female = { genome: { ...monstera, sex: 'female' as const }, growth: 700 }
+    const male = { genome: { ...pothos, sex: 'male' as const }, growth: 700 }
+    expect(pollinationProblem(female, male)).toBeNull()
+    expect(pollinationProblem(female, female)).toContain('Both are female')
+    expect(pollinationProblem(female, { ...male, growth: 699 })).toContain('flowering')
+  })
+
+  it('is the same from the same seed, and takes its species from a parent', () => {
+    expect(crossGenomes(monstera, pothos, 77)).toEqual(crossGenomes(monstera, pothos, 77))
+    const species = new Set(seeds.map((seed) => crossGenomes(monstera, pothos, seed).species))
+    expect([...species].sort()).toEqual(['monstera', 'pothos'])
+  })
+
+  it('gives splits only to species that have them', () => {
+    for (const seed of seeds.slice(0, 300)) {
+      const child = crossGenomes(monstera, pothos, seed)
+      if (child.species === 'pothos') expect(child.fenestration).toBe(0)
+      else expect(child.fenestration).toBeGreaterThan(0)
+    }
+  })
+
+  it('passes variegation on in sensible ratios', () => {
+    const share = (a: typeof monstera, b: typeof monstera) => seeds.filter((seed) => crossGenomes(a, b, seed).variegation !== 'none').length / seeds.length
+    expect(share(monstera, pothos)).toBeLessThan(0.08)
+    expect(share(variegated('marbled'), pothos)).toBeGreaterThan(0.28)
+    expect(share(variegated('marbled'), pothos)).toBeLessThan(0.42)
+    expect(share(variegated('marbled'), variegated('albo', pothos))).toBeGreaterThan(0.68)
+    const child = seeds.map((seed) => crossGenomes(variegated('albo'), pothos, seed)).find((genome) => genome.variegation !== 'none')!
+    expect(child.variegation).toBe('albo')
+  })
+
+  it('clones with a cutting, and keeps variegation; a surprise is rare', () => {
+    expect(cuttingGenome(variegated('albo'), 5).variegation).toBe('albo')
+    const clones = seeds.map((seed) => cuttingGenome(monstera, seed))
+    expect(clones.every((clone) => clone.species === 'monstera' && clone.hue === monstera.hue)).toBe(true)
+    const share = clones.filter((clone) => clone.variegation !== 'none').length / clones.length
+    expect(share).toBeGreaterThan(0.01)
+    expect(share).toBeLessThan(0.08)
+  })
+})
+
+describe('weekly goals', () => {
+  const task = (doneCount: number, timesPerWeek = 1) => ({ id: doneCount + timesPerWeek, title: 't', timesPerWeek, doneCount, reward: { kind: 'sun' as const, rarity: 'common' as const } })
+
+  it('starts weeks on Monday', () => {
+    expect(weekKey(new Date(2026, 10, 8))).toBe('2026-11-02')
+    expect(weekKey(new Date(2026, 10, 9))).toBe('2026-11-09')
+    expect(weekKey(new Date(2026, 10, 2))).toBe('2026-11-02')
+  })
+
+  it('reaches goals by hours, and asks for tasks as well to complete the week', () => {
+    const studied = buildWeek('w', { focusMinutes: 600, studyDays: 2, answers: 0 }, [task(1), task(1, 2)])
+    expect(studied.goals.find((goal) => goal.id === 'study-10h')!.reached).toBe(true)
+    expect(studied.goals.find((goal) => goal.id === 'study-20h')!.reached).toBe(false)
+    expect(studied.complete.reached).toBe(false)
+    expect(buildWeek('w', { focusMinutes: 600, studyDays: 2, answers: 0 }, [task(1), task(2, 2)]).complete.reached).toBe(true)
+    expect(buildWeek('w', { focusMinutes: 300, studyDays: 2, answers: 0 }, [task(1)]).complete.reached).toBe(false)
+  })
+
+  it('keeps the top rewards rare seeds that grow bromeliads', () => {
+    const seed = bromeliadSeed(createRng(4))
+    expect(speciesFromSeed(seed, 'rare').rare).toBe(true)
+    expect(WEEK_COMPLETE.reward.bromeliad).toBe(true)
+    expect(WEEK_GOALS.find((goal) => goal.id === 'study-30h')!.reward.bromeliad).toBe(true)
+  })
+})
+
+describe('calendar', () => {
+  const exam = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({ id: 1, title: 'Biotech', date: '2026-11-26', kind: 'exam', courseId: null, grade: null, time: null, topic: null, effort: null, ...over })
+  const state = (over: Partial<CalendarState> = {}): CalendarState => ({ events: [], todos: [], topics: [], settings: DEFAULT_CALENDAR_SETTINGS, ...over })
+
+  it('builds a month of six Monday-first weeks', () => {
+    const days = monthDays(2026, 10)
+    expect(days).toHaveLength(42)
+    expect(days[0]).toBe('2026-10-26')
+    expect(new Date(days[0]).getUTCDay()).toBe(1)
+    expect(days).toContain('2026-11-30')
+  })
+
+  it('counts days across month ends and the clock change', () => {
+    expect(daysBetween('2026-11-08', '2026-11-26')).toBe(18)
+    expect(daysBetween('2026-10-24', '2026-10-26')).toBe(2)
+    expect(daysBetween('2026-11-08', '2026-11-08')).toBe(0)
+  })
+
+  it('rewards better grades more, and a 5 gives nothing', () => {
+    expect(GRADE_REWARDS[5]).toEqual([])
+    for (const grade of [1, 2, 3, 4]) expect(GRADE_REWARDS[grade].length).toBeGreaterThan(0)
+    expect(GRADE_REWARDS[1].length).toBeGreaterThan(GRADE_REWARDS[2].length)
+    expect(GRADE_REWARDS[1].some((reward) => reward.bromeliad)).toBe(true)
+  })
+
+  it('takes a grade only from the exam day on, and only once', () => {
+    expect(canEnterGrade(exam(), '2026-11-25')).toBe(false)
+    expect(canEnterGrade(exam(), '2026-11-26')).toBe(true)
+    expect(canEnterGrade(exam({ grade: 2 }), '2026-12-01')).toBe(false)
+    expect(canEnterGrade(exam({ kind: 'event' }), '2026-12-01')).toBe(false)
+  })
+
+  it('briefs at most three things, without any overdue wording', () => {
+    const items = buildBriefing(
+      state({
+        events: [exam(), exam({ id: 2, title: 'Mykologie', date: '2026-11-29' })],
+        todos: [{ id: 1, title: 'Altes To-do', due: '2026-11-01', doneAt: null, topic: null, effort: null }, { id: 2, title: 'Wäsche', due: '2026-11-08', doneAt: null, topic: null, effort: null }],
+      }),
+      [{ id: 1, name: 'Bio', fresh: 10, ready: 5 }],
+      '2026-11-08',
+    )
+    expect(items).toHaveLength(3)
+    expect(items.map((item) => item.text).join(' ').toLowerCase()).not.toMatch(/overdue|late|behind|missed/)
+    expect(items[0].text).toContain('Biotech')
+    expect(items[2].todoId).toBe(1)
+  })
+
+  describe('exam time', () => {
+    const timed = exam({ time: '09:00', courseId: 1 })
+
+    it('is over after its time, or after its day when it has none', () => {
+      expect(examOver(timed, '2026-11-25', '23:00')).toBe(false)
+      expect(examOver(timed, '2026-11-26', '08:59')).toBe(false)
+      expect(examOver(timed, '2026-11-26', '09:00')).toBe(true)
+      expect(examOver(timed, '2026-11-27', '00:00')).toBe(true)
+      expect(examOver(exam(), '2026-11-26', '23:59')).toBe(false)
+      expect(examOver(exam(), '2026-11-27', '00:00')).toBe(true)
+      expect(examOver(exam({ kind: 'deadline', time: '09:00' }), '2026-12-01', '10:00')).toBe(false)
+    })
+
+    it('takes the grade only after the time', () => {
+      expect(canEnterGrade(timed, '2026-11-26', '08:59')).toBe(false)
+      expect(canEnterGrade(timed, '2026-11-26', '09:00')).toBe(true)
+      expect(canEnterGrade(exam(), '2026-11-26', '08:00')).toBe(true)
+    })
+
+    it('greys a course out when all its exams are written, and a retake brings it back', () => {
+      expect(courseOver(1, [timed], '2026-11-26', '08:00')).toBe(false)
+      expect(courseOver(1, [timed], '2026-11-26', '10:00')).toBe(true)
+      expect(courseOver(1, [timed, exam({ id: 2, date: '2027-02-01', courseId: 1 })], '2026-11-26', '10:00')).toBe(false)
+      expect(courseOver(1, [], '2026-11-26', '10:00')).toBe(false)
+      expect(courseOver(2, [timed], '2026-11-26', '10:00')).toBe(false)
+    })
+
+    it('stops counting the exam down afterwards and asks for the grade instead', () => {
+      const courses = [{ id: 1, name: 'Bio', fresh: 3, ready: 3 }]
+      const before = buildBriefing(state({ events: [timed] }), courses, '2026-11-26', '08:00')
+      expect(before[0].text).toContain('exam today at 09:00')
+      const after = buildBriefing(state({ events: [timed] }), courses, '2026-11-26', '10:00').map((item) => item.text)
+      expect(after.join(' ')).not.toContain('exam today')
+      expect(after.join(' ')).toContain('Got your grade')
+      expect(after.join(' ')).not.toContain('ready in Bio')
+    })
+
+    it('congratulates once when it is over', () => {
+      const notes = dueNotifications(state({ events: [timed] }), '2026-11-26', '10:00', new Set(['briefing:2026-11-26']))
+      expect(notes.map((note) => note.key)).toEqual(['exam-over:1'])
+      expect(dueNotifications(state({ events: [timed] }), '2026-11-26', '10:00', new Set(['briefing:2026-11-26', 'exam-over:1']))).toEqual([])
+    })
+
+    it('holds an exam topic open until the grade decides', () => {
+      const topic = { id: 1, name: 'Thesis', finishesWith: 'exam' as const, effort: null, completedAt: null }
+      expect(buildTopicView(topic, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '10:00').ready).toBe(false)
+      expect(buildTopicView(topic, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '08:00').state).toContain('Exam on')
+    })
+  })
+
+  describe('topics', () => {
+    const todo = (id: number, done: boolean, effort: number | null = null) => ({ id, title: 't', due: null, doneAt: done ? 1 : null, topic: 'Thesis', effort })
+    const view = (finishesWith: FinishesWith, events: CalendarEvent[], todos: ReturnType<typeof todo>[], completedAt: number | null = null) =>
+      buildTopicView({ id: 1, name: 'thesis', finishesWith, effort: 30, completedAt }, events, todos)
+    const ownExam = (over: Partial<CalendarEvent>) => exam({ topic: 'Thesis', ...over })
+
+    it('can be completed when all todos are done', () => {
+      expect(view('subtasks', [], []).ready).toBe(false)
+      expect(view('subtasks', [], [todo(1, true), todo(2, false)]).missing).toEqual(['1 todo still open'])
+      expect(view('subtasks', [], [todo(1, true), todo(2, true)]).ready).toBe(true)
+    })
+
+    it('needs the exam passed and the todos done, not just one of them', () => {
+      expect(view('exam', [], []).ready).toBe(false)
+      expect(view('exam', [ownExam({ grade: 2 })], [todo(1, false)]).ready).toBe(false)
+      expect(view('exam', [ownExam({})], [todo(1, true)]).ready).toBe(false)
+      expect(view('exam', [ownExam({ grade: 4 })], [todo(1, true)]).ready).toBe(true)
+      expect(view('exam', [ownExam({ grade: 2 })], []).ready).toBe(true)
+    })
+
+    it('stays open after a 5, until a retake is passed', () => {
+      const failed = view('exam', [ownExam({ grade: 5 })], [])
+      expect(failed.ready).toBe(false)
+      expect(failed.state).toContain('Retake')
+      expect(view('exam', [ownExam({ grade: 5 }), ownExam({ id: 2, grade: 2, date: '2027-02-01' })], []).ready).toBe(true)
+      expect(view('exam', [exam({ kind: 'deadline', topic: 'Thesis', grade: 1 })], []).ready).toBe(false)
+    })
+
+    it('waits for the grade after the exam is written', () => {
+      const written = buildTopicView({ id: 1, name: 'Thesis', finishesWith: 'exam', effort: null, completedAt: null }, [exam({ topic: 'Thesis', time: '09:00' })], [], '2026-11-26', '10:00')
+      expect(written.ready).toBe(false)
+      expect(written.state).toContain('waiting for your grade')
+      expect(written.missing).toEqual(['Grade not entered yet'])
+    })
+
+    it('can never be completed when set to never, and not twice', () => {
+      expect(view('never', [], [todo(1, true)]).ready).toBe(false)
+      expect(view('subtasks', [], [todo(1, true)], 123).ready).toBe(false)
+    })
+
+    it('adds up the open effort, leaving out what is done', () => {
+      expect(view('subtasks', [ownExam({ effort: 10 })], [todo(1, false, 2.5), todo(2, true, 4)]).effortOpen).toBe(12.5)
+    })
+
+    it('pays far more for finishing a topic than for its todos, scaling with effort', () => {
+      expect(todoSun(null)).toBe(2)
+      expect(todoSun(2)).toBe(6)
+      expect(todoSun(100)).toBe(REWARDS.todoMaxSun)
+      expect(topicReward(null).sun).toBe(REWARDS.topicMinSun)
+      expect(topicReward(30).sun).toBe(300)
+      expect(topicReward(1000).sun).toBe(REWARDS.topicMaxSun)
+      expect(topicReward(3).items).toHaveLength(1)
+      expect(topicReward(10).items[0].rarity).toBe('uncommon')
+      expect(topicReward(30).items[0].rarity).toBe('rare')
+      expect(topicReward(100).items.some((item) => item.bromeliad)).toBe(true)
+      expect(topicReward(100).items.some((item) => item.gold)).toBe(true)
+    })
+  })
+
+  it('reads effort as typed, with a comma or a point, and ignores anything else', () => {
+    expect(parseEffort('2,5')).toBe(2.5)
+    expect(parseEffort('2.5')).toBe(2.5)
+    expect(parseEffort(' 3 ')).toBe(3)
+    for (const nothing of ['', 'viel', '0', '-1']) expect(parseEffort(nothing)).toBeNull()
+    expect(effortText(2.5)).toBe('2,5 h')
+  })
+
+  it('links a typed topic to a course of the same name only', () => {
+    const courses = [{ id: 1, name: 'Biochemische Übungen' }]
+    expect(courseForTopic(' biochemische übungen ', courses)?.id).toBe(1)
+    expect(courseForTopic('Thesis', courses)).toBeUndefined()
+    expect(courseForTopic(null, courses)).toBeUndefined()
+    expect(courseForTopic('  ', courses)).toBeUndefined()
+  })
+
+  it('treats a deadline like an exam for reminders and the briefing, but never asks for a grade', () => {
+    const deadline = exam({ kind: 'deadline', title: 'Protokoll', date: '2026-11-11' })
+    expect(canEnterGrade(deadline, '2026-12-01')).toBe(false)
+    const notes = dueNotifications(state({ events: [deadline] }), '2026-11-08', '09:00', new Set())
+    expect(notes[1].body).toBe('Deadline in 3 days.')
+    expect(buildBriefing(state({ events: [deadline] }), [], '2026-11-08')[0].text).toContain('Protokoll: deadline in 3 days')
+  })
+
+  it('keeps the pinned topic in the briefing every day, behind only an exam within days', () => {
+    const thesis = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, completedAt: null, pinned: true, workedMinutes: 750 }, [], [
+      { id: 1, title: 'Methoden', due: null, doneAt: 1, topic: 'Bachelorarbeit', effort: null },
+      { id: 2, title: 'Diskussion', due: null, doneAt: null, topic: 'Bachelorarbeit', effort: null },
+    ])
+    expect(buildBriefing(state({ topics: [thesis] }), [], '2026-11-08')[0].text).toBe('Bachelorarbeit: 1 of 2 todos open, 12 h 30 worked.')
+    const soon = exam({ date: '2026-11-09' })
+    const far = exam({ id: 2, date: '2026-11-25', title: 'Später' })
+    const briefing = buildBriefing(state({ topics: [thesis], events: [soon, far] }), [], '2026-11-08').map((item) => item.text)
+    expect(briefing[0]).toContain('Biotech')
+    expect(briefing[1]).toContain('Bachelorarbeit')
+    expect(briefing[2]).toContain('Später')
+    const done = { ...thesis, completedAt: 5 }
+    expect(buildBriefing(state({ topics: [done] }), [], '2026-11-08').map((item) => item.text).join()).not.toContain('Bachelorarbeit')
+    const empty = buildTopicView({ id: 9, name: 'Bachelorarbeit', finishesWith: 'subtasks', effort: 200, completedAt: null, pinned: true }, [], [])
+    expect(buildBriefing(state({ topics: [empty] }), [], '2026-11-08')[0].text).toContain('next step')
+  })
+
+  it('works out a pace from what is left, and hides it when nothing is', () => {
+    expect(paceText(30, 10)).toContain('about 3 a day')
+    expect(paceText(31, 10)).toContain('about 4 a day')
+    expect(paceText(5, 0)).toContain('about 5 a day')
+    expect(paceText(0, 10)).toBeNull()
+  })
+
+  it('notifies from the briefing time on, once per thing, and can be turned off', () => {
+    const withExam = state({ events: [exam({ date: '2026-11-11' })] })
+    expect(dueNotifications(withExam, '2026-11-08', '07:59', new Set())).toEqual([])
+    const notes = dueNotifications(withExam, '2026-11-08', '08:00', new Set())
+    expect(notes.map((note) => note.key)).toEqual(['briefing:2026-11-08', 'exam:1:3'])
+    expect(dueNotifications(withExam, '2026-11-08', '09:00', new Set(notes.map((note) => note.key)))).toEqual([])
+    expect(dueNotifications({ ...withExam, settings: { ...DEFAULT_CALENDAR_SETTINGS, notifications: false } }, '2026-11-08', '09:00', new Set())).toEqual([])
+    expect(dueNotifications(state({ events: [exam({ date: '2026-11-13' })] }), '2026-11-08', '09:00', new Set()).map((note) => note.key)).toEqual(['briefing:2026-11-08'])
   })
 })

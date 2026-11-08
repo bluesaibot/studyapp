@@ -18,8 +18,10 @@ import { questionSun } from '../core/rewards'
 import { computeStreak, localDate } from '../core/streak'
 import type { SessionSummary, Snapshot } from '../shared/api'
 import type { ReviewRequest } from '../shared/study'
+import type { Calendar } from './calendar'
 import type { Db } from './db'
 import type { Study } from './study'
+import type { Week } from './week'
 
 const PERSIST_EVERY_MS = 5_000
 
@@ -27,6 +29,7 @@ export interface ControllerHooks {
   broadcast(snapshot: Snapshot): void
   onEvent(event: SessionEvent): void
   onSessionChange(active: boolean): void
+  onWeekReward(title: string): void
 }
 
 /** Single owner of the running session; all windows only see its snapshots. */
@@ -43,11 +46,15 @@ export class Controller {
   constructor(
     private readonly db: Db,
     private readonly study: Study,
+    private readonly week: Week,
+    private readonly calendar: Calendar,
     private readonly hooks: ControllerHooks,
     /** Time multiplier for development and screenshots. */
     private readonly speed = 1,
   ) {
     db.closeOpenSessions()
+    db.settleGarden()
+    this.week.claimReached(new Date())
   }
 
   snapshot(): Snapshot {
@@ -62,11 +69,17 @@ export class Controller {
       streak: computeStreak(this.db.studyDays(), today),
       todayFocusMs: this.session ? this.session.dayFocusAtStartMs + this.session.focusMs : savedToday,
       lastTask: this.session?.task ?? this.db.lastTask(),
+      gardenBeds: this.db.gardenBeds(),
+      nursery: this.db.nursery(),
+      pollinations: this.db.pollinations(),
       settings: this.db.settings(),
+      week: this.week.state(new Date()),
+      calendar: this.calendar.state(),
     }
   }
 
   private publish() {
+    for (const title of this.week.claimReached(new Date())) this.hooks.onWeekReward(title)
     this.hooks.broadcast(this.snapshot())
   }
 
@@ -95,7 +108,7 @@ export class Controller {
     const label = task.trim()
     this.summary = null
     this.db.transaction(() => {
-      this.db.ensureCurrentPlant(label || null)
+      this.db.ensureCurrentPlant(label || null, true)
       this.sessionId = this.db.createSession(label, date)
     })
     const multiplier = computeStreak(this.db.studyDays(), date).sessionMultiplier
@@ -180,5 +193,40 @@ export class Controller {
     this.mutate(() => this.db.useFund(fundId, plantId, this.session?.task || null))
   setCurrentPlant = (plantId: number) => this.mutate(() => this.db.setCurrentPlant(plantId))
   renamePlant = (plantId: number, name: string) => this.mutate(() => this.db.renamePlant(plantId, name))
+  takeCutting = (plantId: number) =>
+    this.mutate(() => this.db.takeCutting(plantId, Math.floor(Math.random() * 2 ** 31), this.session?.task || null))
+  sow = (nurseryId: number) => this.mutate(() => this.db.sow(nurseryId))
+  digUp = (plantId: number) => this.mutate(() => this.db.digUp(plantId))
+  buyBed = () => this.mutate(() => this.db.buyBed())
+  moveToGreenhouse = (plantId: number) => this.mutate(() => this.db.moveToGreenhouse(plantId))
+  moveToGarden = (plantId: number) => this.mutate(() => this.db.moveToGarden(plantId))
+  startPollination = (plantA: number, plantB: number) => this.mutate(() => this.db.startPollination(plantA, plantB))
+  startWithPollen = (plantId: number) => this.mutate(() => this.db.startWithPollen(plantId))
+  feedPollination = (id: number, amount: number) =>
+    this.mutate(() => this.db.feedPollination(id, amount, () => Math.floor(Math.random() * 2 ** 31)))
+  taskDone = (taskId: number) => this.mutate(() => this.week.taskDone(taskId, new Date()))
+  taskUndo = (taskId: number) => this.mutate(() => this.week.taskUndo(taskId, new Date()))
+  addTask = (title: string, timesPerWeek: number) => this.mutate(() => this.week.addTask(title, timesPerWeek))
+  removeTask = (taskId: number) => this.mutate(() => this.week.removeTask(taskId))
+  addEvent = (event: Parameters<Calendar['addEvent']>[0]) => this.mutate(() => this.calendar.addEvent(event))
+  setEventTime = (eventId: number, time: string | null) => this.mutate(() => this.calendar.setEventTime(eventId, time))
+  removeEvent = (eventId: number) => this.mutate(() => this.calendar.removeEvent(eventId))
+  setGrade = (eventId: number, grade: number) => this.mutate(() => this.calendar.setGrade(eventId, grade, new Date()))
+  addTodo = (todo: Parameters<Calendar['addTodo']>[0]) => this.mutate(() => this.calendar.addTodo(todo))
+  toggleTodo = (todoId: number) => this.mutate(() => this.calendar.toggleTodo(todoId, new Date()))
+  removeTodo = (todoId: number) => this.mutate(() => this.calendar.removeTodo(todoId))
+  setCalendarSettings = (settings: Parameters<Calendar['setSettings']>[0]) => this.mutate(() => this.calendar.setSettings(settings))
+  addTopic = (name: string, finishesWith: Parameters<Calendar['addTopic']>[1], effort: number | null) => this.mutate(() => this.calendar.addTopic(name, finishesWith, effort))
+  renameTopic = (topicId: number, name: string) => this.mutate(() => this.calendar.renameTopic(topicId, name))
+  setTopicPinned = (topicId: number, pinned: boolean) => this.mutate(() => this.calendar.setTopicPinned(topicId, pinned))
+  setTopicEffort = (topicId: number, effort: number | null) => this.mutate(() => this.calendar.setTopicEffort(topicId, effort))
+  completeTopic = (topicId: number) => this.mutate(() => this.calendar.completeTopic(topicId, new Date()))
+  setTopicFinish = (topicId: number, finishesWith: Parameters<Calendar['setTopicFinish']>[1]) => this.mutate(() => this.calendar.setTopicFinish(topicId, finishesWith))
+  removeTopic = (topicId: number) => this.mutate(() => this.calendar.removeTopic(topicId))
+  setTodoTopic = (todoId: number, topic: string | null) => this.mutate(() => this.calendar.setTodoTopic(todoId, topic))
+  setTodoEffort = (todoId: number, effort: number | null) => this.mutate(() => this.calendar.setTodoEffort(todoId, effort))
+  setEventTopic = (eventId: number, topic: string | null, courseId: number | null) => this.mutate(() => this.calendar.setEventTopic(eventId, topic, courseId))
+  /** What should be announced right now; each thing only once. */
+  notificationsDue = (now: Date) => this.calendar.takeNotifications(now)
   setSettings = (settings: SessionSettings) => this.mutate(() => this.db.setSettings(settings))
 }

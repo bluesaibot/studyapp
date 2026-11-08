@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { POT_COLORS } from '../../core/plants'
+import { clockTime, courseOver } from '../../core/calendar'
+import { POT_COLORS, speciesById, stageIndex, STAGES } from '../../core/plants'
+import { localDate } from '../../core/streak'
 import type { SessionState } from '../../core/session'
 import type { PlantRow, Snapshot } from '../../shared/api'
 import type { CourseRow } from '../../shared/study'
+import { Briefing, CalendarPage } from './Calendar'
 import { fundEffect, fundTitle, Garden } from './Garden'
 import { Library } from './Library'
-import { PlantView, Pot } from './PlantView'
+import { PlantStage, PlantView, Pot } from './PlantView'
+import { WeekPage, WeekPanel, weekLine } from './Week'
 import { Workspace, type StudyPlace, type StudyTab } from './Workspace'
 import { clock, duration, sun, useSnapshot } from './useSnapshot'
 
@@ -48,6 +52,11 @@ function ShelfPlant({ snapshot }: { snapshot: Snapshot }) {
           <Pot color={POT_COLORS[0]} />
         </svg>
       )}
+      {plant && (
+        <div className="stage-caption">
+          <PlantStage growth={plant.growth} />
+        </div>
+      )}
     </div>
   )
 }
@@ -81,27 +90,65 @@ function SettingsForm({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
-function Home({ snapshot, openGarden, openLibrary, courses }: { snapshot: Snapshot; openGarden: () => void; openLibrary: () => void; courses: CourseRow[] }) {
-  const ready = courses.reduce((total, course) => total + course.cardsReady + course.questionsReady, 0)
-  const [task, setTask] = useState(snapshot.lastTask)
+/** Sessions always belong to one of your topics, or to nothing in particular. */
+function TopicChoice({ topics, value, onChange }: { topics: readonly string[]; value: string; onChange: (topic: string) => void }) {
+  const options = value && !topics.includes(value) ? [value, ...topics] : topics
+  return (
+    <select lang="de" value={value} onChange={(event) => onChange(event.target.value)}>
+      {options.map((topic) => (
+        <option key={topic} value={topic}>
+          {topic}
+        </option>
+      ))}
+      <option value="">No topic</option>
+    </select>
+  )
+}
+
+function Home({ snapshot, openGarden, openLibrary, openWeek, openCalendar, openTopics: showTopics, courses }: { snapshot: Snapshot; openGarden: () => void; openLibrary: () => void; openWeek: () => void; openCalendar: () => void; openTopics: () => void; courses: CourseRow[] }) {
+  const now = new Date()
+  const ready = courses
+    .filter((course) => !courseOver(course.id, snapshot.calendar.events, localDate(now), clockTime(now)))
+    .reduce((total, course) => total + course.cardsReady + course.questionsReady, 0)
+  const openTopics = snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)
+  const [picked, setPicked] = useState(snapshot.lastTask)
+  // Last time's topic if it is still open, otherwise the first one that is.
+  const task = openTopics.includes(picked) || picked === '' ? picked : (openTopics[0] ?? '')
   return (
     <main className="home">
       <section className="home-left">
-        <button className="sun-button" onClick={() => void window.api.start(task)}>
+        <button className="sun-button" onClick={() => void window.api.start(task || 'Study time')}>
           Study now
         </button>
         <p className="home-promise">Just 5 minutes. Then decide again.</p>
         <label className="task-field">
           What are you working on?
-          <input value={task} placeholder="for example Cell Biology, chapter 6" onChange={(event) => setTask(event.target.value)} />
+          <TopicChoice topics={openTopics} value={task} onChange={setPicked} />
         </label>
+        {openTopics.length === 0 && (
+          <button className="link" onClick={openCalendar}>
+            Add your topics in the calendar
+          </button>
+        )}
+        <Briefing snapshot={snapshot} courses={courses} />
         <div className="home-facts">
           <p>{streakLine(snapshot)}</p>
           {snapshot.todayFocusMs >= 60_000 && <p>{duration(snapshot.todayFocusMs)} studied today.</p>}
           {snapshot.wallet >= 1 && <p>{sun(snapshot.wallet)} for the garden.</p>}
           {ready > 0 && <p>{ready} cards and questions ready in your library.</p>}
+          <p>{weekLine(snapshot.week)}</p>
+          {snapshot.funds.length > 0 && <p>{snapshot.funds.length} {snapshot.funds.length === 1 ? 'find is' : 'finds are'} waiting in the garden.</p>}
         </div>
         <div className="row">
+          <button className="button quiet" onClick={showTopics}>
+            Topics
+          </button>
+          <button className="button quiet" onClick={openCalendar}>
+            Calendar
+          </button>
+          <button className="button quiet" onClick={openWeek}>
+            This week
+          </button>
           <button className="button quiet" onClick={openLibrary}>
             Open library
           </button>
@@ -116,14 +163,14 @@ function Home({ snapshot, openGarden, openLibrary, courses }: { snapshot: Snapsh
   )
 }
 
-export function DipPanel({ session, close, easyCards }: { session: SessionState; close: () => void; easyCards?: () => void }) {
+export function DipPanel({ session, topics, close, easyCards }: { session: SessionState; topics: readonly string[]; close: () => void; easyCards?: () => void }) {
   const [changing, setChanging] = useState(false)
   if (changing) {
     return (
       <div className="dip-panel">
         <label className="task-field">
           What will you do instead?
-          <input autoFocus defaultValue={session.task} onChange={(event) => void window.api.setTask(event.target.value)} />
+          <TopicChoice topics={topics} value={session.task} onChange={(topic) => void window.api.setTask(topic)} />
         </label>
         <button className="button" onClick={close}>
           Continue with this
@@ -234,7 +281,12 @@ function SessionScreen({ snapshot, session, course, openStudy, openLibrary }: Se
           {sun(session.earnedSun)} this session, {duration(snapshot.todayFocusMs)} today
         </p>
         {dipOpen ? (
-          <DipPanel session={session} close={() => setDipOpen(false)} easyCards={course ? () => openStudy('easy') : undefined} />
+          <DipPanel
+            session={session}
+            topics={snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)}
+            close={() => setDipOpen(false)}
+            easyCards={course ? () => openStudy('easy') : undefined}
+          />
         ) : (
           <div className="row">
             <button
@@ -287,6 +339,7 @@ function BreakScreen({ snapshot, session }: { snapshot: Snapshot; session: Sessi
   const over = session.phase === 'breakOver'
   const latestFund = session.funds[session.funds.length - 1]
   const showFund = latestFund && session.blockFocusMs === 0
+  const [showWeek, setShowWeek] = useState(false)
   return (
     <main className="break">
       <header className="break-head">
@@ -302,6 +355,9 @@ function BreakScreen({ snapshot, session }: { snapshot: Snapshot; session: Sessi
           <button className="button sunny" onClick={() => void window.api.returnFromBreak()}>
             Keep studying
           </button>
+          <button className="button quiet" onClick={() => setShowWeek(!showWeek)}>
+            {showWeek ? 'Garden' : 'This week'}
+          </button>
           <button className="button quiet" onClick={() => void window.api.end()}>
             Done for now
           </button>
@@ -313,7 +369,7 @@ function BreakScreen({ snapshot, session }: { snapshot: Snapshot; session: Sessi
           <span>{fundEffect(latestFund)}</span>
         </div>
       )}
-      <Garden snapshot={snapshot} />
+      {showWeek ? <div className="break-week"><WeekPanel week={snapshot.week} /></div> : <Garden snapshot={snapshot} />}
     </main>
   )
 }
@@ -356,6 +412,32 @@ function SummaryScreen({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
+const LEVEL_UP_MS = 6000
+
+/** Notices when any plant reaches a new stage, whichever screen caused it. Nothing shows on launch. */
+function useLevelUp(plants: readonly PlantRow[] | undefined): string | null {
+  const known = useRef<Map<number, number> | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!plants) return
+    const stages = new Map(plants.map((plant) => [plant.id, stageIndex(plant.growth)]))
+    const risen = known.current && plants.find((plant) => (known.current!.get(plant.id) ?? 0) < stages.get(plant.id)! && known.current!.has(plant.id))
+    known.current = stages
+    if (!risen) return
+    const name = risen.name ?? speciesById(risen.genome.species).name
+    setMessage(`${name} is now: ${STAGES[stages.get(risen.id)!].name}`)
+  }, [plants])
+
+  useEffect(() => {
+    if (!message) return
+    const hide = setTimeout(() => setMessage(null), LEVEL_UP_MS)
+    return () => clearTimeout(hide)
+  }, [message])
+
+  return message
+}
+
 const COURSE_KEY = 'studyapp.course'
 
 function rememberedCourse(): number | null {
@@ -368,11 +450,12 @@ function rememberedCourse(): number | null {
 
 export function App() {
   const snapshot = useSnapshot()
-  const [view, setView] = useState<'home' | 'garden' | 'library'>('home')
+  const [view, setView] = useState<'home' | 'garden' | 'library' | 'week' | 'calendar' | 'topics'>('home')
   const [place, setPlace] = useState<StudyPlace | null>(null)
   const [courses, setCourses] = useState<CourseRow[]>([])
   const [courseId, setCourseId] = useState<number | null>(rememberedCourse)
   const previousPhase = useRef<string | undefined>(undefined)
+  const levelUp = useLevelUp(snapshot?.plants)
 
   const refreshCourses = useCallback(() => void window.api.courses().then(setCourses), [])
   useEffect(refreshCourses, [refreshCourses, view, place === null])
@@ -397,7 +480,9 @@ export function App() {
   if (!snapshot) return null
   const { session, summary } = snapshot
   const onBreak = session?.phase === 'break' || session?.phase === 'breakOver'
-  const course = courses.find((row) => row.id === courseId) ?? courses[0] ?? null
+  const now = new Date()
+  const current = courses.find((row) => !courseOver(row.id, snapshot.calendar.events, localDate(now), clockTime(now)))
+  const course = courses.find((row) => row.id === courseId) ?? current ?? courses[0] ?? null
 
   const openStudy = (id: number, tab: StudyTab) => {
     setCourseId(id)
@@ -411,6 +496,11 @@ export function App() {
 
   return (
     <>
+      {levelUp && (
+        <div className="level-up" role="status">
+          {levelUp}
+        </div>
+      )}
       {session && onBreak && <BreakScreen snapshot={snapshot} session={session} />}
       {place && (
         // Stays mounted during a break, so a half-written answer is still there afterwards.
@@ -442,7 +532,7 @@ export function App() {
       {!session && !summary && !place && view === 'garden' && (
         <main className="garden-page">
           <header className="break-head">
-            <h1>Garden</h1>
+            <h1>Your plants</h1>
             <button className="button quiet" onClick={() => setView('home')}>
               Back
             </button>
@@ -450,15 +540,19 @@ export function App() {
           <Garden snapshot={snapshot} />
         </main>
       )}
+      {!session && !summary && !place && (view === 'calendar' || view === 'topics') && (
+        <CalendarPage key={view} snapshot={snapshot} courses={courses} startOn={view} close={() => setView('home')} />
+      )}
+      {!session && !summary && !place && view === 'week' && <WeekPage week={snapshot.week} close={() => setView('home')} />}
       {!session && !summary && !place && view === 'library' && (
-        <Library courses={courses} refresh={refreshCourses} open={openStudy} close={() => setView('home')} />
+        <Library courses={courses} events={snapshot.calendar.events} refresh={refreshCourses} open={openStudy} close={() => setView('home')} />
       )}
       {!session && !summary && !place && view === 'home' && (
-        <Home snapshot={snapshot} courses={courses} openGarden={() => setView('garden')} openLibrary={() => setView('library')} />
+        <Home snapshot={snapshot} courses={courses} openGarden={() => setView('garden')} openLibrary={() => setView('library')} openWeek={() => setView('week')} openCalendar={() => setView('calendar')} openTopics={() => setView('topics')} />
       )}
       {session && !onBreak && !place && view === 'library' && (
         <div className="library-over">
-          <Library courses={courses} refresh={refreshCourses} open={openStudy} close={() => setView('home')} />
+          <Library courses={courses} events={snapshot.calendar.events} refresh={refreshCourses} open={openStudy} close={() => setView('home')} />
         </div>
       )}
     </>

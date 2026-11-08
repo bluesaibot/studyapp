@@ -6,9 +6,13 @@ export type LeafShape = 'heart' | 'arrow' | 'oval' | 'lance' | 'round' | 'strap'
 export type GrowthForm = 'pole' | 'trail' | 'hoop' | 'clump' | 'rosette'
 export type Variegation = 'none' | 'marbled' | 'sectoral' | 'aurea' | 'albo' | 'mint'
 
+/** Only plants of one family can be crossed. */
+export type PlantFamily = 'aroid' | 'begonia' | 'calathea' | 'hoya' | 'bromeliad'
+
 export interface Species {
   id: string
   name: string
+  family: PlantFamily
   shape: LeafShape
   form: GrowthForm
   hue: readonly [number, number]
@@ -20,22 +24,22 @@ export interface Species {
 
 /** New species go at the end of their list, so a seed always keeps the species it stands for. */
 export const COMMON_SPECIES: readonly Species[] = [
-  { id: 'monstera', name: 'Monstera', shape: 'heart', form: 'pole', hue: [135, 155], fenestration: [0.55, 1], flower: '#f3efd8' },
-  { id: 'philodendron', name: 'Philodendron', shape: 'arrow', form: 'pole', hue: [110, 150], fenestration: [0, 0], flower: '#e7d8c0' },
-  { id: 'pothos', name: 'Pothos', shape: 'heart', form: 'trail', hue: [95, 125], fenestration: [0, 0], flower: '#e9edc9' },
-  { id: 'alocasia', name: 'Alocasia', shape: 'arrow', form: 'clump', hue: [150, 175], fenestration: [0, 0], flower: '#efe6d0' },
-  { id: 'anthurium', name: 'Anthurium', shape: 'heart', form: 'clump', hue: [125, 150], fenestration: [0, 0], flower: '#d8402f' },
-  { id: 'begonia', name: 'Begonia', shape: 'round', form: 'clump', hue: [85, 130], fenestration: [0, 0], flower: '#f2a7b8' },
-  { id: 'calathea', name: 'Calathea', shape: 'oval', form: 'clump', hue: [140, 170], fenestration: [0, 0], flower: '#f4f0e6' },
-  { id: 'hoya', name: 'Hoya', shape: 'oval', form: 'hoop', hue: [105, 140], fenestration: [0, 0], flower: '#f6d9de' },
+  { id: 'monstera', family: 'aroid', name: 'Monstera', shape: 'heart', form: 'pole', hue: [135, 155], fenestration: [0.55, 1], flower: '#f3efd8' },
+  { id: 'philodendron', family: 'aroid', name: 'Philodendron', shape: 'arrow', form: 'pole', hue: [110, 150], fenestration: [0, 0], flower: '#e7d8c0' },
+  { id: 'pothos', family: 'aroid', name: 'Pothos', shape: 'heart', form: 'trail', hue: [95, 125], fenestration: [0, 0], flower: '#e9edc9' },
+  { id: 'alocasia', family: 'aroid', name: 'Alocasia', shape: 'arrow', form: 'clump', hue: [150, 175], fenestration: [0, 0], flower: '#efe6d0' },
+  { id: 'anthurium', family: 'aroid', name: 'Anthurium', shape: 'heart', form: 'clump', hue: [125, 150], fenestration: [0, 0], flower: '#d8402f' },
+  { id: 'begonia', family: 'begonia', name: 'Begonia', shape: 'round', form: 'clump', hue: [85, 130], fenestration: [0, 0], flower: '#f2a7b8' },
+  { id: 'calathea', family: 'calathea', name: 'Calathea', shape: 'oval', form: 'clump', hue: [140, 170], fenestration: [0, 0], flower: '#f4f0e6' },
+  { id: 'hoya', family: 'hoya', name: 'Hoya', shape: 'oval', form: 'hoop', hue: [105, 140], fenestration: [0, 0], flower: '#f6d9de' },
 ]
 
 export const BROMELIADS: readonly Species[] = [
-  { id: 'neoregelia', name: 'Neoregelia', shape: 'strap', form: 'rosette', hue: [95, 130], fenestration: [0, 0], flower: '#d3225a', rare: true },
-  { id: 'guzmania', name: 'Guzmania', shape: 'strap', form: 'rosette', hue: [110, 140], fenestration: [0, 0], flower: '#e2391f', rare: true },
-  { id: 'vriesea', name: 'Vriesea', shape: 'strap', form: 'rosette', hue: [120, 150], fenestration: [0, 0], flower: '#e8452c', rare: true },
-  { id: 'aechmea', name: 'Aechmea', shape: 'strap', form: 'rosette', hue: [150, 175], fenestration: [0, 0], flower: '#ec5f9c', rare: true },
-  { id: 'tillandsia', name: 'Tillandsia', shape: 'strap', form: 'rosette', hue: [90, 120], fenestration: [0, 0], flower: '#ef6aa6', rare: true },
+  { id: 'neoregelia', family: 'bromeliad', name: 'Neoregelia', shape: 'strap', form: 'rosette', hue: [95, 130], fenestration: [0, 0], flower: '#d3225a', rare: true },
+  { id: 'guzmania', family: 'bromeliad', name: 'Guzmania', shape: 'strap', form: 'rosette', hue: [110, 140], fenestration: [0, 0], flower: '#e2391f', rare: true },
+  { id: 'vriesea', family: 'bromeliad', name: 'Vriesea', shape: 'strap', form: 'rosette', hue: [120, 150], fenestration: [0, 0], flower: '#e8452c', rare: true },
+  { id: 'aechmea', family: 'bromeliad', name: 'Aechmea', shape: 'strap', form: 'rosette', hue: [150, 175], fenestration: [0, 0], flower: '#ec5f9c', rare: true },
+  { id: 'tillandsia', family: 'bromeliad', name: 'Tillandsia', shape: 'strap', form: 'rosette', hue: [90, 120], fenestration: [0, 0], flower: '#ef6aa6', rare: true },
 ]
 
 export const SPECIES: readonly Species[] = [...COMMON_SPECIES, ...BROMELIADS]
@@ -54,6 +58,8 @@ export interface Genome {
   fenestration: number
   variegation: Variegation
   variegationAmount: number
+  /** Set on cuttings, which keep their parent's sex. Everything else follows from the seed. */
+  sex?: 'male' | 'female'
 }
 
 const VARIEGATION_CHANCE: Record<Rarity, number> = {
@@ -62,7 +68,7 @@ const VARIEGATION_CHANCE: Record<Rarity, number> = {
   rare: 0.4,
 }
 
-const VARIEGATION_TYPES = [
+export const VARIEGATION_TYPES = [
   ['marbled', 35],
   ['sectoral', 20],
   ['mint', 20],
@@ -96,6 +102,14 @@ export function speciesFromSeed(seed: number, rarity: Rarity = 'common'): Specie
   return COMMON_SPECIES[seed % COMMON_SPECIES.length]
 }
 
+/** A seed that is sure to grow a bromeliad, for the biggest rewards. */
+export function bromeliadSeed(rng: () => number): number {
+  for (;;) {
+    const seed = Math.floor(rng() * 2 ** 31)
+    if (speciesFromSeed(seed, 'rare').rare) return seed
+  }
+}
+
 export const STAGES = [
   { name: 'Seed', from: 0 },
   { name: 'Sprout', from: 20 },
@@ -119,6 +133,13 @@ export function nextStageProgress(growth: number): number {
   if (index === STAGES.length - 1) return 1
   const from = STAGES[index].from
   return (growth - from) / (STAGES[index + 1].from - from)
+}
+
+/** Where a plant stands: its stage, and how far it is to the next one. */
+export function stageProgress(growth: number): { stage: string; next: string | null; goal: number | null; share: number } {
+  const index = stageIndex(growth)
+  const next = STAGES[index + 1]
+  return { stage: STAGES[index].name, next: next?.name ?? null, goal: next?.from ?? null, share: next ? nextStageProgress(growth) : 1 }
 }
 
 export const SPROUT_GROWTH = STAGES[1].from
@@ -153,4 +174,5 @@ export function flowerProgress(growth: number): number {
   return smoothstep((growth - FLOWER_BUDS_FROM) / (FLOWERING_GROWTH - FLOWER_BUDS_FROM))
 }
 
-export const POT_COLORS =['#2e6e7e', '#3d4f7c', '#7a5c8e', '#b5533c', '#d9d4c5', '#2f2f35', '#c79a2d'] as const
+export const GOLD_GLAZE = '#c79a2d'
+export const POT_COLORS = ['#2e6e7e', '#3d4f7c', '#7a5c8e', '#b5533c', '#d9d4c5', '#2f2f35', '#c79a2d'] as const

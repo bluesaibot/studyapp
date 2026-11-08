@@ -8,10 +8,12 @@ import { localDate } from '../core/streak'
 import { API_METHODS, SNAPSHOT_CHANNEL, type Snapshot } from '../shared/api'
 import { MEDIA_SCHEME } from '../shared/media'
 import { backupOnLaunch } from './backup'
+import { openCalendar } from './calendar'
 import { Controller } from './controller'
 import { openDb } from './db'
 import { importLernskript } from './importer'
 import { openStudy } from './study'
+import { openWeek } from './week'
 
 app.setName('StudyApp')
 const dataDir = process.env.STUDYAPP_DATA_DIR ?? join(app.getPath('appData'), 'StudyApp')
@@ -117,6 +119,8 @@ app.whenReady().then(async () => {
   const controller = new Controller(
     db,
     study,
+    openWeek(db),
+    openCalendar(db),
     {
       broadcast,
       onEvent(event) {
@@ -124,6 +128,9 @@ app.whenReady().then(async () => {
         if (event.type === 'breakOver') {
           new Notification({ title: 'Break is over', body: 'Carry on whenever you are ready.', silent: true }).show()
         }
+      },
+      onWeekReward(title) {
+        new Notification({ title: 'Weekly goal reached', body: `${title}. Your find is waiting in the garden.`, silent: true }).show()
       },
       onSessionChange(active) {
         sessionActive = active
@@ -185,6 +192,41 @@ app.whenReady().then(async () => {
     nextItem: (request: Parameters<typeof study.nextItem>[0]) => study.nextItem(request),
     review: (request: Parameters<Controller['review']>[0]) => controller.review(request),
     resetProgress: (courseId: number) => study.resetProgress(courseId),
+    takeCutting: (plantId: number) => controller.takeCutting(plantId),
+    sow: (nurseryId: number) => controller.sow(nurseryId),
+    digUp: (plantId: number) => controller.digUp(plantId),
+    buyBed: () => controller.buyBed(),
+    moveToGreenhouse: (plantId: number) => controller.moveToGreenhouse(plantId),
+    moveToGarden: (plantId: number) => controller.moveToGarden(plantId),
+    startPollination: (plantA: number, plantB: number) => controller.startPollination(plantA, plantB),
+    startWithPollen: (plantId: number) => controller.startWithPollen(plantId),
+    feedPollination: (id: number, amount: number) => controller.feedPollination(id, amount),
+    taskDone: (taskId: number) => controller.taskDone(taskId),
+    taskUndo: (taskId: number) => controller.taskUndo(taskId),
+    addTask: (title: string, timesPerWeek: number) => controller.addTask(title, timesPerWeek),
+    removeTask: (taskId: number) => controller.removeTask(taskId),
+    addEvent: (event: Parameters<Controller['addEvent']>[0]) => controller.addEvent(event),
+    setEventTime: (eventId: number, time: string | null) => controller.setEventTime(eventId, time),
+    removeEvent: (eventId: number) => controller.removeEvent(eventId),
+    setGrade: (eventId: number, grade: number) => controller.setGrade(eventId, grade),
+    addTodo: (todo: Parameters<Controller['addTodo']>[0]) => controller.addTodo(todo),
+    toggleTodo: (todoId: number) => controller.toggleTodo(todoId),
+    removeTodo: (todoId: number) => controller.removeTodo(todoId),
+    addTopic: (name: string, finishesWith: Parameters<Controller['addTopic']>[1], effort: number | null) => controller.addTopic(name, finishesWith, effort),
+    renameTopic: (topicId: number, name: string) => controller.renameTopic(topicId, name),
+    setTopicPinned: (topicId: number, pinned: boolean) => controller.setTopicPinned(topicId, pinned),
+    setTopicEffort: (topicId: number, effort: number | null) => controller.setTopicEffort(topicId, effort),
+    completeTopic: (topicId: number) => controller.completeTopic(topicId),
+    setTopicFinish: (topicId: number, finishesWith: Parameters<Controller['setTopicFinish']>[1]) => controller.setTopicFinish(topicId, finishesWith),
+    removeTopic: (topicId: number) => controller.removeTopic(topicId),
+    setTodoTopic: (todoId: number, topic: string | null) => controller.setTodoTopic(todoId, topic),
+    setTodoEffort: (todoId: number, effort: number | null) => controller.setTodoEffort(todoId, effort),
+    setEventTopic: (eventId: number, topic: string | null, courseId: number | null) => controller.setEventTopic(eventId, topic, courseId),
+    setCalendarSettings: (settings: Parameters<Controller['setCalendarSettings']>[0]) => {
+      controller.setCalendarSettings(settings)
+      // Reminders only arrive while the app runs, so opening at login is what makes them reliable.
+      app.setLoginItemSettings({ openAtLogin: settings.openAtLogin })
+    },
   }
   for (const method of API_METHODS) {
     const handler = handlers[method] as (...args: unknown[]) => unknown
@@ -193,6 +235,16 @@ app.whenReady().then(async () => {
 
   createMainWindow()
   createPillWindow()
+
+  const announce = () => {
+    for (const note of controller.notificationsDue(new Date())) {
+      const notification = new Notification({ title: note.title, body: note.body, silent: true })
+      notification.on('click', showMain)
+      notification.show()
+    }
+  }
+  announce()
+  setInterval(announce, 60_000)
 
   app.on('activate', showMain)
   app.on('before-quit', () => {

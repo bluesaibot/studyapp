@@ -4,7 +4,7 @@ import type { ItemKind, ItemOption } from '../../core/qmd'
 import type { Snapshot } from '../../shared/api'
 import type { ChapterRow, CourseRow, DeckMode, StudyItem } from '../../shared/study'
 import { DipPanel } from './App'
-import { PlantView } from './PlantView'
+import { PlantStage, PlantView } from './PlantView'
 import { Prose } from './Prose'
 import { clock, sun } from './useSnapshot'
 
@@ -446,6 +446,7 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
         {session && plant && (
           <PlantView className="workspace-plant" plantId={plant.id} genome={plant.genome} growth={plant.growth} pot={plant.pot} />
         )}
+        {session && plant && <PlantStage growth={plant.growth} compact />}
         {session && <span className="workspace-clock" role="timer">{clock(blockMs - session.blockFocusMs)}</span>}
         {session && <span>{sun(session.earnedSun)} this session</span>}
         <span className="workspace-spacer" />
@@ -476,7 +477,12 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
       </header>
       {dipOpen && session && (
         <div className="workspace-dip">
-          <DipPanel session={session} close={() => setDipOpen(false)} easyCards={() => setPlace({ courseId, tab: 'easy' })} />
+          <DipPanel
+            session={session}
+            topics={snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)}
+            close={() => setDipOpen(false)}
+            easyCards={() => setPlace({ courseId, tab: 'easy' })}
+          />
         </div>
       )}
       <nav className="workspace-nav" aria-label="Study">

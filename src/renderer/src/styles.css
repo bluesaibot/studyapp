@@ -24,9 +24,10 @@ body,
   margin: 0;
 }
 
+/* Fixed to the window, so a long page scrolls over one continuous background. */
 html[data-route='main'] body,
 html[data-route='gallery'] body {
-  background: linear-gradient(180deg, var(--mist) 0%, var(--glass) 62%, var(--glass-deep) 100%);
+  background: linear-gradient(180deg, var(--mist) 0%, var(--glass) 62%, var(--glass-deep) 100%) fixed;
 }
 
 html[data-route='pill'],
@@ -139,10 +140,62 @@ button {
 .stage-plant {
   align-self: end;
   border-bottom: 10px solid var(--bottle);
-  margin: 0 -3.5rem 2.2rem 0;
+  margin: 0 -3.5rem 4.4rem 0;
   padding-right: 3.5rem;
   display: flex;
   justify-content: center;
+  position: relative;
+}
+
+/* Its left column is tall, so the plant stays at the top where its progress is visible. */
+.home .stage-plant {
+  align-self: start;
+}
+
+.stage-caption {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 1rem;
+  width: min(100% - 5rem, 22rem);
+}
+
+.plant-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.plant-stage.compact {
+  width: 6.5rem;
+  font-size: 0.8rem;
+  gap: 0.1rem;
+}
+
+.plant-stage.compact .progress {
+  height: 5px;
+}
+
+.level-up {
+  position: fixed;
+  top: 2.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--sun);
+  color: var(--bottle);
+  border-radius: 6px;
+  padding: 0.65rem 1.3rem;
+  font-size: 1.15rem;
+  white-space: nowrap;
+  animation: level-up 480ms cubic-bezier(0.2, 1.3, 0.5, 1);
+}
+
+@keyframes level-up {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-12px) scale(0.94);
+  }
 }
 
 .stage-plant svg {
@@ -158,14 +211,14 @@ button {
 
 /* The sun is the start button. */
 .sun-button {
-  width: 230px;
-  height: 230px;
+  width: 170px;
+  height: 170px;
   border-radius: 50%;
   border: 0;
   background: radial-gradient(circle at 38% 34%, #ffe27a 0%, var(--sun) 58%, var(--sun-deep) 100%);
   box-shadow: 0 0 0 16px rgb(246 201 63 / 0.22), 0 0 0 38px rgb(246 201 63 / 0.1);
-  margin: 38px 0 44px 38px;
-  font-size: 1.9rem;
+  margin: 24px 0 26px 24px;
+  font-size: 1.55rem;
   line-height: 1.1;
   font-weight: 500;
   transition: box-shadow 180ms ease, transform 180ms ease;
@@ -268,6 +321,7 @@ input {
   display: flex;
   flex-direction: column;
   padding: 2.6rem 3rem 0;
+  overflow: hidden;
   gap: 1.1rem;
 }
 
@@ -431,7 +485,7 @@ input {
 }
 
 .summary .stage-plant {
-  margin: 0 0 2.2rem -3.5rem;
+  margin: 0 0 4.4rem -3.5rem;
   padding: 0 0 0 3.5rem;
 }
 
@@ -467,6 +521,570 @@ input {
   }
 }
 
+/* Today's briefing */
+.briefing {
+  width: min(100%, 30rem);
+  border-left: 5px solid var(--sun);
+  padding: 0.1rem 0 0.1rem 0.8rem;
+}
+
+.briefing h3 {
+  margin: 0 0 0.15rem;
+}
+
+.briefing ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.briefing li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+/* Calendar */
+.calendar {
+  min-height: 100%;
+  padding: 2.6rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.calendar-tabs {
+  display: flex;
+  gap: 1.1rem;
+  border-bottom: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.done-todos {
+  opacity: 0.6;
+}
+
+.calendar-columns {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.3fr) minmax(300px, 1fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.month-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.month-head h2 {
+  font-size: 1.4rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+.month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid rgb(23 57 47 / 0.25);
+  border-left: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.month-weekday {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.35rem;
+  border-right: 1px solid rgb(23 57 47 / 0.25);
+  border-bottom: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.day {
+  min-height: 4.6rem;
+  background: none;
+  border: 0;
+  border-right: 1px solid rgb(23 57 47 / 0.25);
+  border-bottom: 1px solid rgb(23 57 47 / 0.25);
+  padding: 0.2rem 0.3rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.day.other {
+  opacity: 0.4;
+}
+
+.day.today .day-number {
+  background: var(--sun);
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  align-self: flex-start;
+}
+
+.day.selected {
+  background: rgb(255 255 255 / 0.55);
+  box-shadow: inset 0 0 0 2px var(--leaf);
+}
+
+.day-entry {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.day-entry.exam {
+  background: var(--bottle);
+  color: var(--mist);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+}
+
+.day-entry.deadline {
+  background: var(--sun);
+  color: var(--bottle);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+}
+
+.day-entry.done {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.cal-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.cal-form .cal-title {
+  flex: 1 1 100%;
+}
+
+.cal-form .cal-topic {
+  width: 11rem;
+}
+
+.cal-form .cal-effort {
+  width: 4rem;
+}
+
+.finishes {
+  font-size: 0.9rem;
+}
+
+.grade-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.grade-reward {
+  font-size: 0.85rem;
+}
+
+/* Garden and greenhouse: two quiet rooms, told apart by their light and their lines. */
+.place-tabs {
+  display: flex;
+  gap: 1.1rem;
+}
+
+.world {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 0;
+  margin: 0 -3rem;
+  border-top: 1px solid rgb(23 57 47 / 0.14);
+}
+
+.world-side {
+  overflow-y: auto;
+  padding: 1.4rem 3rem 2rem 1.6rem;
+  background: rgb(255 255 255 / 0.32);
+}
+
+.world-main {
+  position: relative;
+  overflow-y: auto;
+  padding: 1.8rem 2rem 2.5rem 3rem;
+}
+
+/* The garden is warm and earthy, with plants standing straight in the soil. */
+.world.plot .world-main {
+  background: #eee9dd;
+}
+
+.beds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem 1.5rem;
+  align-items: flex-end;
+}
+
+.bed {
+  width: 188px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.bed-plant {
+  height: 188px;
+  display: flex;
+  align-items: flex-end;
+  background: none;
+  border: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.bed-plant svg {
+  width: 100%;
+  overflow: visible;
+  display: block;
+}
+
+.bed-soil {
+  height: 16px;
+  border-radius: 2px 2px 4px 4px;
+  background: #3b2e22;
+  margin-top: -2px;
+}
+
+.bed-label {
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.bed.selected .bed-soil {
+  box-shadow: 0 3px 0 var(--sun-deep);
+}
+
+.bed.selected .bed-label strong {
+  text-decoration: underline;
+  text-decoration-color: var(--sun-deep);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 3px;
+}
+
+.bed.empty-bed .bed-plant,
+.bed.locked .bed-plant {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.85rem;
+  color: rgb(23 57 47 / 0.75);
+}
+
+.bed.locked .bed-soil {
+  background: none;
+  border: 1px dashed rgb(23 57 47 / 0.45);
+}
+
+.seed-box {
+  margin-top: 2.2rem;
+  max-width: 34rem;
+}
+
+.seed-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid rgb(23 57 47 / 0.18);
+}
+
+/* The greenhouse is a row of tall arched panes in thin steel, one plant standing in each. */
+.world.glass .world-main {
+  background: #f7f8f5;
+}
+
+.glass-content {
+  position: relative;
+}
+
+.glass-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3rem 0;
+  align-items: flex-end;
+}
+
+.shelf-plant.on-show {
+  position: relative;
+  width: 196px;
+  height: 330px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0.5rem;
+  margin-right: -1px;
+  background: linear-gradient(180deg, #ffffff 0%, #eef3ee 100%);
+  border: 1px solid #39493f;
+  border-radius: 98px 98px 0 0;
+}
+
+/* The glazing bars: one upright and two crossbars, only faintly there behind the plant. */
+.shelf-plant.on-show::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(#39493f, #39493f) center / 1px 100% no-repeat,
+    linear-gradient(#39493f, #39493f) center 34% / 100% 1px no-repeat,
+    linear-gradient(#39493f, #39493f) center 67% / 100% 1px no-repeat;
+  opacity: 0.16;
+}
+
+.shelf-plant.on-show svg {
+  position: relative;
+  width: 172px;
+  margin-bottom: 4px;
+}
+
+.shelf-plant.on-show span {
+  margin-top: 10px;
+}
+
+.shelf-plant.on-show.selected {
+  background: linear-gradient(180deg, #fffdf2 0%, #f4efd3 100%);
+}
+
+.shelf-plant.drop-target {
+  outline: 2px dashed var(--sun-deep);
+  outline-offset: 2px;
+}
+
+.pollinations {
+  position: relative;
+  margin-top: 4rem;
+  max-width: 32rem;
+}
+
+.pollination {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid rgb(23 57 47 / 0.18);
+}
+
+.breeding {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgb(23 57 47 / 0.2);
+}
+
+.hint {
+  font-size: 0.85rem;
+}
+
+/* Topic manager */
+.topic-form .cal-title {
+  flex: 1 1 100%;
+}
+
+.topic-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.6rem 2.5rem;
+}
+
+.topics-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.topic-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding-top: 0.75rem;
+  border-top: 1.5px solid rgb(23 57 47 / 0.35);
+}
+
+.topic-card.pinned {
+  grid-column: 1 / -1;
+  border-top: 0;
+  border-left: 5px solid var(--sun);
+  padding: 0.3rem 0 0.3rem 1rem;
+}
+
+.topic-card.pinned .topic-name {
+  font-size: 1.6rem;
+}
+
+.topic-add-todo {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.topic-todo-title {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.topic-todo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.15rem 0;
+}
+
+.topic-todos {
+  width: 100%;
+}
+
+.todo-effort {
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.todo-effort .cal-effort {
+  width: 3.6rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.topic-card .week-item-head {
+  width: 100%;
+}
+
+.topic-card .progress {
+  width: 100%;
+}
+
+.topic-card.completed {
+  opacity: 0.6;
+}
+
+.topic-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  background: transparent;
+  border-width: 0 0 1px;
+  border-color: transparent;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.topic-name:not(:disabled):hover {
+  border-color: var(--leaf);
+}
+
+.topic-card .cal-effort {
+  width: 4rem;
+}
+
+.topic-card .week-item-head strong {
+  white-space: nowrap;
+}
+
+.topic-todos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.92rem;
+}
+
+.todo-done span {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* This week */
+.week {
+  min-height: 100%;
+  padding: 2.6rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.break-week {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 2rem;
+}
+
+.week-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.week-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.week-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid rgb(23 57 47 / 0.2);
+}
+
+.week-item.done strong::after {
+  content: ' ✓';
+  color: var(--leaf);
+}
+
+.week-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.week-reward {
+  font-size: 0.85rem;
+}
+
+.week-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.8rem;
+}
+
+.week-add input:not([type='number']) {
+  flex: 1 1 100%;
+}
+
+.week-add input[type='number'] {
+  width: 4.5rem;
+}
+
 /* Library */
 .library {
   min-height: 100%;
@@ -490,6 +1108,10 @@ input {
   gap: 0.55rem;
   padding: 1.1rem 0;
   border-top: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.course.over {
+  opacity: 0.5;
 }
 
 .course-name {
@@ -965,9 +1587,25 @@ kbd {
   overflow: visible;
 }
 
+@media (max-width: 1000px) {
+  .calendar-tabs {
+  display: flex;
+  gap: 1.1rem;
+  border-bottom: 1px solid rgb(23 57 47 / 0.25);
+}
+
+.done-todos {
+  opacity: 0.6;
+}
+
+.calendar-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 960px) {
-  .garden {
-    grid-template-columns: 1fr 280px;
+  .world {
+    grid-template-columns: minmax(0, 1fr) 280px;
   }
 }
 

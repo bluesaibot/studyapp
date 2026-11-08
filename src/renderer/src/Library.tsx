@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { clockTime, courseOver, type CalendarEvent } from '../../core/calendar'
+import { localDate } from '../../core/streak'
 import type { CourseRow, ImportReport } from '../../shared/study'
 import { ResetProgress, type StudyTab } from './Workspace'
 
@@ -31,14 +33,20 @@ function ReportView({ result }: { result: ImportReport | { error: string } }) {
 
 interface LibraryProps {
   courses: CourseRow[]
+  events: readonly CalendarEvent[]
   refresh: () => void
   open: (courseId: number, tab: StudyTab) => void
   close: () => void
 }
 
-export function Library({ courses, refresh, open, close }: LibraryProps) {
+export function Library({ courses, events, refresh, open, close }: LibraryProps) {
   const [result, setResult] = useState<ImportResult>(null)
   const [busy, setBusy] = useState(false)
+
+  const now = new Date()
+  const isOver = (course: CourseRow) => courseOver(course.id, events, localDate(now), clockTime(now))
+  // Courses whose exam is written stay usable below the current ones, greyed out.
+  const ordered = [...courses.filter((course) => !isOver(course)), ...courses.filter(isOver)]
 
   const run = async (action: () => Promise<ImportResult>) => {
     setBusy(true)
@@ -66,8 +74,8 @@ export function Library({ courses, refresh, open, close }: LibraryProps) {
         <p className="empty">Pick a course folder, and its Lernskript becomes cards, open questions and something to read. This works offline, and your original files stay untouched.</p>
       )}
       <section>
-        {courses.map((course) => (
-          <article className="course" key={course.id}>
+        {ordered.map((course) => (
+          <article className={`course${isOver(course) ? ' over' : ''}`} key={course.id}>
             <input
               key={course.name}
               className="course-name"
@@ -80,6 +88,7 @@ export function Library({ courses, refresh, open, close }: LibraryProps) {
             <p>
               {course.cards} cards, {course.questions} open questions, {course.chapters} chapters
               {course.reviewed > 0 && `. ${course.reviewed} practised so far`}
+              {isOver(course) && '. Exam written'}
             </p>
             <div className="row">
               <button className="button" onClick={() => open(course.id, 'cards')}>
