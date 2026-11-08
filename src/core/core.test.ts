@@ -25,7 +25,7 @@ import {
 } from './calendar'
 import { crossChance, crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
 import { cutLeaf, cutProblem, NO_LEAF_STATE, regrowLeaves, regrowthOf, rollNewLeaves } from './leaves'
-import { bedsTouch, GOLD_POT, emergenceOf, growthCost, growthFromSun, plantRarity, sproutCost, type Genome } from './plants'
+import { bedsTouch, GOLD_POT, emergenceOf, growthCost, growthFromSun, plantRarity, sproutCost, varietyShare, type Genome } from './plants'
 import { POT_DESIGNS } from './pots'
 import { bagPrice, ingredientById, mixStats, recipeStats, SOIL_WOBBLE } from './soil'
 import { varietiesOf, varietyById } from './varieties'
@@ -270,11 +270,21 @@ describe('plants', () => {
       expect(varietiesOf(species.id).length).toBeGreaterThanOrEqual(5)
       expect(varietiesOf(species.id).length).toBeLessThanOrEqual(10)
     }
-    expect(new Set(SPECIES.map((row) => row.group)).size).toBe(10)
-    for (let seed = 0; seed < 500; seed += 1) {
-      const variety = varietyById('anthurium', makeGenome('anthurium', seed * 31, 'common').variety)
-      expect(variety.rare).toBeFalsy()
+    expect(new Set(SPECIES.map((row) => row.group)).size).toBe(12)
+    const share = (rarity: 'common' | 'rare', id: string) => {
+      let found = 0
+      for (let seed = 0; seed < 8000; seed += 1) if (makeGenome('anthurium', seed * 31, rarity).variety === id) found += 1
+      return found / 8000
     }
+    // A scale, not a tag: anything can come from any seed, and better seeds reach further.
+    expect(share('common', 'andraeanum')).toBeGreaterThan(0.3)
+    expect(share('common', 'warocqueanum')).toBeGreaterThan(0)
+    expect(share('common', 'warocqueanum')).toBeLessThan(0.04)
+    expect(share('rare', 'warocqueanum')).toBeGreaterThan(share('common', 'warocqueanum') * 2)
+    expect(plantRarity({ ...makeGenome('anthurium', 1, 'common', 'andraeanum'), variegation: 'none' })).toBe(0)
+    expect(plantRarity({ ...makeGenome('anthurium', 1, 'common', 'warocqueanum'), variegation: 'none' })).toBeGreaterThan(0)
+    expect(varietyShare(makeGenome('guzmania', 1, 'rare', 'lingulata'))).toBeLessThan(0.5)
+    expect(varietyById('monstera', undefined).id).toBe('deliciosa')
   })
 
   it('makes seeds slower to sprout than cuttings, and rare plants slower still', () => {
@@ -342,9 +352,9 @@ describe('species from seeds', () => {
   const seeds = Array.from({ length: 4000 }, (_, i) => i * 7 + 3)
   const bromeliads = new Set(BROMELIADS.map((species) => species.id))
 
-  it('keeps every common seed on the species it stood for before bromeliads came', () => {
-    const before = ['monstera', 'philodendron', 'pothos', 'alocasia', 'anthurium', 'begonia', 'calathea', 'hoya']
-    for (const seed of seeds) expect(speciesFromSeed(seed).id).toBe(before[seed % 8])
+  it('spreads common seeds evenly over the common groups', () => {
+    const groups = ['monstera', 'philodendron', 'pothos', 'alocasia', 'anthurium', 'begonia', 'calathea', 'hoya', 'syngonium', 'peperomia']
+    for (const seed of seeds) expect(speciesFromSeed(seed).id).toBe(groups[seed % 10])
   })
 
   it('makes bromeliads rare: never from a common seed, often from a rare one', () => {

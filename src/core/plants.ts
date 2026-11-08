@@ -31,6 +31,8 @@ export const COMMON_SPECIES: readonly Species[] = [
   { id: 'begonia', group: 'begonia', name: 'Begonia', shape: 'round', form: 'clump', hue: [85, 130], fenestration: [0, 0], flower: '#f2a7b8' },
   { id: 'calathea', group: 'calathea', name: 'Calathea', shape: 'oval', form: 'clump', hue: [140, 170], fenestration: [0, 0], flower: '#f4f0e6' },
   { id: 'hoya', group: 'hoya', name: 'Hoya', shape: 'oval', form: 'hoop', hue: [105, 140], fenestration: [0, 0], flower: '#f6d9de' },
+  { id: 'syngonium', group: 'syngonium', name: 'Syngonium', shape: 'arrow', form: 'pole', hue: [105, 135], fenestration: [0, 0], flower: '#efe6c8' },
+  { id: 'peperomia', group: 'peperomia', name: 'Peperomia', shape: 'round', form: 'clump', hue: [100, 130], fenestration: [0, 0], flower: '#dfe2a8' },
 ]
 
 export const BROMELIADS: readonly Species[] = [
@@ -89,11 +91,19 @@ export const VARIEGATION_TYPES = [
   ['albo', 10],
 ] as const
 
-/** Rare varieties are out of reach for common seeds. Which one follows from the seed. */
+/** Close seeds start out close, so the first numbers are skipped. */
+function mixedRng(seed: number) {
+  const rng = createRng(seed)
+  for (let i = 0; i < 4; i += 1) rng()
+  return rng
+}
+
+/** A seed's rarity flattens the scale: common plants stay likely, and better seeds reach further down it. */
+const SEED_REACH: Record<Rarity, number> = { common: 1, uncommon: 0.75, rare: 0.5 }
+
+/** Every variety can come from any seed, as often as its weight says. */
 export function varietyFromSeed(speciesId: string, seed: number, rarity: Rarity): string {
-  const all = varietiesOf(speciesId)
-  const allowed = rarity === 'common' ? all.filter((variety) => !variety.rare) : all
-  return allowed[Math.floor(seed / 11) % allowed.length].id
+  return pickWeighted(mixedRng(Math.floor(seed / 11) + 7), varietiesOf(speciesId).map((variety) => [variety.id, variety.weight ** SEED_REACH[rarity]] as const))
 }
 
 export function makeGenome(speciesId: string, seed: number, rarity: Rarity, varietyId?: string): Genome {
@@ -125,14 +135,21 @@ export function varietyName(genome: Genome): string {
   return `${speciesById(genome.species).name} ${varietyById(genome.species, genome.variety).name}`
 }
 
+/** Its share among all plants of its group, 0 to 1: bromeliads share one scale across their species. */
+export function varietyShare(genome: Genome): number {
+  const group = speciesById(genome.species).group
+  const total = SPECIES.filter((species) => species.group === group).flatMap((species) => varietiesOf(species.id)).reduce((sum, variety) => sum + variety.weight, 0)
+  return varietyById(genome.species, genome.variety).weight / total
+}
+
 /** 0 plain, 1 uncommon, 2 rare, 3 exceptional. */
 export const RARITY_LABELS = ['Plain', 'Uncommon', 'Rare', 'Exceptional'] as const
 
 export function plantRarity(genome: Genome): number {
-  const variety = varietyById(genome.species, genome.variety)
+  const share = varietyShare(genome)
   let points = 0
   if (speciesById(genome.species).rare) points += 3
-  if (variety.rare) points += 1
+  if (share < 0.15) points += share < 0.02 ? 3 : share < 0.06 ? 2 : 1
   if (genome.crossed) points += 1
   if (genome.variegation !== 'none') points += { marbled: 3, sectoral: 4, mint: 4, aurea: 4, albo: 5 }[genome.variegation]
   if (points <= 0) return 0
@@ -158,12 +175,21 @@ export function growthFromSun(growth: number, sun: number, cost: number, rate = 
   return SPROUT_GROWTH + (sun - sunToSprout) / rate
 }
 
+/** Bromeliads and orchids stay as likely as before, in the same 5 to 1, and weights decide within bromeliads. */
+function rareSpeciesWeight(species: Species): number {
+  if (species.group !== 'bromeliad') return 1
+  const weigh = (row: Species) => varietiesOf(row.id).reduce((sum, variety) => sum + variety.weight, 0)
+  return (5 * weigh(species)) / BROMELIADS.reduce((sum, row) => sum + weigh(row), 0)
+}
+
 /** Chance out of 100 that a seed of this rarity grows a bromeliad. */
 const BROMELIAD_CHANCE: Record<Rarity, number> = { common: 0, uncommon: 8, rare: 60 }
 
 export function speciesFromSeed(seed: number, rarity: Rarity = 'common'): Species {
   // A higher part of the seed decides, so this stays independent of which common species it would be.
-  if (Math.floor(seed / 16) % 100 < BROMELIAD_CHANCE[rarity]) return RARE_SPECIES[Math.floor(seed / 1600) % RARE_SPECIES.length]
+  if (Math.floor(seed / 16) % 100 < BROMELIAD_CHANCE[rarity]) {
+    return pickWeighted(mixedRng(Math.floor(seed / 1600) + 3), RARE_SPECIES.map((species) => [species, rareSpeciesWeight(species)] as const))
+  }
   return COMMON_SPECIES[seed % COMMON_SPECIES.length]
 }
 

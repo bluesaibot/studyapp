@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { crossChance, pollinationCost, pollinationProblem, sexOf } from '../../core/genetics'
 import { cutProblem, emergenceLeaves, leafType } from '../../core/leaves'
-import { bedsTouch, FLOWERING_GROWTH, plantRarity, RARITY_LABELS, speciesById, sproutCost, SPROUT_GROWTH, stageProgress, varietyName, type Variegation } from '../../core/plants'
+import { bedsTouch, FLOWERING_GROWTH, plantRarity, RARITY_LABELS, speciesById, sproutCost, SPROUT_GROWTH, stageProgress, varietyName, varietyShare, type Variegation } from '../../core/plants'
 import { potDesign } from '../../core/pots'
 import { bedCost, fundGrowthAmount, fundSunAmount, REWARDS, type Fund } from '../../core/rewards'
 import { BED_LITRES } from '../../core/soil'
@@ -16,7 +16,7 @@ export function fundTitle(fund: Fund): string {
 }
 
 export function fundEffect(fund: Fund): string {
-  if (fund.kind === 'seed') return 'Goes into your seed box. Rarer seeds reach rarer varieties, and often grow bromeliads or orchids.'
+  if (fund.kind === 'seed') return 'Goes into your seed box. Better seeds reach further down the scale from common to scarce, and often grow bromeliads or orchids.'
   if (fund.kind === 'fertilizer') return `Grows a plant by ${fundGrowthAmount(fund.rarity)}.`
   if (fund.kind === 'sun') return `Adds ${fundSunAmount(fund.rarity)} ☀ for the garden.`
   return `A new pot for a plant, ${potDesign(fund.seed).name.toLowerCase()}. It stays in your collection.`
@@ -38,19 +38,28 @@ function originLine(plant: PlantRow, plants: PlantRow[]): string | null {
     : `Child of ${name(plant.origin.parentA)} and ${name(plant.origin.parentB)}.`
 }
 
+/** The scale in plain words, rather than a tag. */
+function commonnessText(plant: PlantRow): string {
+  const inEvery = Math.round(1 / varietyShare(plant.genome))
+  const group = speciesById(plant.genome.species).group === 'bromeliad' ? 'bromeliads' : speciesById(plant.genome.species).name
+  return inEvery <= 1 ? `The only one of its kind in ${group}.` : `About 1 in ${inEvery} of ${group}.`
+}
+
 const isCutting = (plant: PlantRow) => plant.origin?.kind === 'cutting'
 const bedOf = (plant: PlantRow, beds: readonly BedRow[]) => beds.find((bed) => bed.id === plant.bedId)
 
-function PollinateChoices({ plant, plants, beds, pollen }: { plant: PlantRow; plants: PlantRow[]; beds: readonly BedRow[]; pollen: number }) {
+function PollinateChoices({ plant, plants, beds, pollen, busy, pollinating }: { plant: PlantRow; plants: PlantRow[]; beds: readonly BedRow[]; pollen: number; busy: boolean; pollinating: readonly PollinationRow[] }) {
   if (plant.location !== 'garden') return <p className="hint">Plants only pollinate in the garden, in neighbouring beds.</p>
   if (plant.growth < FLOWERING_GROWTH) return <p className="hint">Once it flowers, it can pollinate a plant in the bed next to it.</p>
+  if (busy) return <p className="hint">It is pollinating. Follow its progress under the beds.</p>
   if (plant.restLeft > 0) return <p className="hint">Resting. It blooms again after {Math.ceil(plant.restLeft)} ☀ of study.</p>
   const own = bedOf(plant, beds)
   const neighbours = plants.filter((row) => {
     const other = bedOf(row, beds)
     return row.id !== plant.id && own && other && bedsTouch(own, other)
   })
-  const partners = neighbours.filter((row) => !pollinationProblem(plant, row))
+  const taken = (row: PlantRow) => pollinating.some((entry) => entry.plantA === row.id || entry.plantB === row.id)
+  const partners = neighbours.filter((row) => !pollinationProblem(plant, row) && !taken(row))
   const crossing = (row: PlantRow) => ((plant.soil?.stats.crossing ?? 0) + (row.soil?.stats.crossing ?? 0)) / 2
   return (
     <>
@@ -65,9 +74,9 @@ function PollinateChoices({ plant, plants, beds, pollen }: { plant: PlantRow; pl
         </p>
       ))}
       {neighbours.length === 0 && <p className="hint">Drag a flowering plant of the same group into the bed next to this one.</p>}
-      {neighbours.filter((row) => pollinationProblem(plant, row)).map((row) => (
+      {neighbours.filter((row) => pollinationProblem(plant, row) || taken(row)).map((row) => (
         <p key={row.id} className="hint">
-          {plantName(row)}: {pollinationProblem(plant, row)}
+          {plantName(row)}: {pollinationProblem(plant, row) ?? 'It is already pollinating.'}
         </p>
       ))}
       <button className="button quiet" disabled={pollen < 1} onClick={() => void window.api.startWithPollen(plant.id)}>
@@ -194,6 +203,7 @@ function PlantDetail({ plant, snapshot, openStudio }: { plant: PlantRow; snapsho
         {plant.growth >= REWARDS.sexShownGrowth && `, ${sexOf(plant.genome)}`}, {RARITY_LABELS[plantRarity(plant.genome)].toLowerCase()}
         {plant.genome.variegation !== 'none' && `, variegated (${plant.genome.variegation})`}
       </p>
+      <p className="hint">{commonnessText(plant)}</p>
       {origin && <p className="hint">{origin}</p>}
       <PlantStage growth={plant.growth} sproutSun={sproutCost(plant.genome, isCutting(plant))} />
       <div className="row">
@@ -234,7 +244,7 @@ function PlantDetail({ plant, snapshot, openStudio }: { plant: PlantRow; snapsho
             Open up close, to cut leaves
           </button>
         )}
-        <PollinateChoices plant={plant} plants={plants} beds={beds} pollen={pollen} />
+        <PollinateChoices plant={plant} plants={plants} beds={beds} pollen={pollen} busy={busy} pollinating={pollinations} />
       </div>
       <PotChoice plant={plant} owned={ownedPots} />
     </div>

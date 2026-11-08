@@ -118,6 +118,8 @@ const LEAF_LOOK: Record<string, LeafLook> = {
   begonia: { pattern: 'palmate', proportion: 1, asymmetry: 0.72, spots: true },
   calathea: { pattern: 'painted', proportion: 0.72 },
   hoya: { pattern: 'smooth', proportion: 0.74, gloss: true },
+  syngonium: { pattern: 'pinnate', proportion: 0.74, gloss: true },
+  peperomia: { pattern: 'smooth', proportion: 0.92, gloss: true },
 }
 
 /** The group's leaf with whatever its variety does differently. */
@@ -596,6 +598,7 @@ const CLUMP_LOOK: Record<string, ClumpLook> = {
   anthurium: { reach: [120, 235], spread: 50, size: [74, 100], tilt: [105, 150], stalk: 3 },
   calathea: { reach: [105, 205], spread: 44, size: [84, 116], tilt: [8, 40], stalk: 2.6 },
   begonia: { reach: [48, 118], spread: 74, size: [78, 106], tilt: [62, 102], stalk: 4 },
+  peperomia: { reach: [50, 112], spread: 68, size: [58, 80], tilt: [70, 112], stalk: 3.2 },
 }
 
 /** Clumps: all stalks rise straight from the soil, and the species decides how they stand. */
@@ -643,12 +646,15 @@ function drawClump(genome: Genome, species: Species, growth: number, uid: string
   if (bloom > 0) {
     for (let i = 0; i < 3; i += 1) {
       const rng = createRng(genome.seed + i * 3331)
-      const height = species.id === 'begonia' ? between(rng, 130, 170) : species.id === 'calathea' ? between(rng, 100, 140) : between(rng, 190, 270)
+      const height = species.id === 'peperomia' ? between(rng, 120, 165) : species.id === 'begonia' ? between(rng, 130, 170) : species.id === 'calathea' ? between(rng, 100, 140) : between(rng, 190, 270)
       const x = lerp(CENTER, CENTER + between(rng, -80, 80), bloom)
       const y = lerp(POT_TOP - 4, POT_TOP - height, bloom)
       stems.push(<path key={`f${i}`} d={`M${CENTER} ${POT_TOP - 4} Q${CENTER} ${y + 80 * bloom} ${x} ${y}`} stroke={`hsl(${genome.hue} 30% 38%)`} strokeWidth={2.6} fill="none" />)
       flowers.push(
-        species.id === 'begonia' || species.id === 'calathea' ? (
+        species.id === 'peperomia' ? (
+          // Thin spikes like a mouse's tail.
+          <line key={i} x1={x} y1={y + 2} x2={x} y2={y - 46 * bloom} stroke={species.flower} strokeWidth={7} strokeLinecap="round" />
+        ) : species.id === 'begonia' || species.id === 'calathea' ? (
           <Cluster key={i} color={varietyById(species.id, genome.variety).flower ?? species.flower} x={x} y={y} scale={bloom} seed={genome.seed + i} />
         ) : (
           <Spathe key={i} species={{ ...species, flower: varietyById(species.id, genome.variety).flower ?? species.flower }} x={x} y={y} angle={between(rng, -22, 22)} scale={bloom} />
@@ -1052,6 +1058,8 @@ function drawFoliage(genome: Genome, species: Species, growth: number, uid: stri
 
 /** Where the one big flower and the seed pods sit, for each way of growing. */
 const FLOWER_SPOT = { pole: [168, 214], trail: [226, 322], hoop: [200, 112], clump: [204, 226], rosette: [200, 296] } as const
+/** Low clumps carry it close above their leaves, or it would float in the air. */
+const LOW_FLOWER_SPOT: Record<string, readonly [number, number]> = { begonia: [204, 292], peperomia: [204, 306] }
 
 /** The flower you can spot from afar. It opens every time it comes into view, and shuts while the plant rests. */
 function BloomMark({ color, x, y, closed }: { color: string; x: number; y: number; closed: boolean }) {
@@ -1132,7 +1140,7 @@ export function PlantView({ genome, growth, pot = 0, className, title, plantId, 
   const { shown, spurting } = useShownGrowth(plantId, growth)
   // The session broadcasts every second; the drawing is only rebuilt when the shown growth moves.
   const leafKey = JSON.stringify(leaves)
-  const spot = FLOWER_SPOT[species.form]
+  const spot = LOW_FLOWER_SPOT[species.id] ?? FLOWER_SPOT[species.form]
   const flower = varietyById(species.id, genome.variety).flower ?? species.flower
   const foliage = useMemo(() => drawFoliage(genome, species, shown, uid, leaves, closed), [genome, species, shown, uid, leafKey, closed]) // eslint-disable-line react-hooks/exhaustive-deps
 
