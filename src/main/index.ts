@@ -164,12 +164,12 @@ app.whenReady().then(async () => {
 
   const handlers: Record<(typeof API_METHODS)[number], (...args: never[]) => unknown> = {
     getSnapshot: () => controller.snapshot(),
-    start: (task: string) => controller.start(task),
+    start: (task: string, todoId?: number | null) => controller.start(task, todoId ?? null),
     pause: () => controller.pause(),
     resume: () => controller.resume(),
     dip: () => controller.dip(),
     miniGoal: () => controller.miniGoal(),
-    setTask: (task: string) => controller.setTask(task),
+    setTask: (task: string, todoId?: number | null) => controller.setTask(task, todoId ?? null),
     takeBreak: () => controller.takeBreak(),
     returnFromBreak: () => controller.returnFromBreak(),
     end: () => controller.end(),
@@ -223,6 +223,8 @@ app.whenReady().then(async () => {
     setGrade: (eventId: number, grade: number) => controller.setGrade(eventId, grade),
     addTodo: (todo: Parameters<Controller['addTodo']>[0]) => controller.addTodo(todo),
     toggleTodo: (todoId: number) => controller.toggleTodo(todoId),
+    finishTodo: (todoId: number, spentMinutes: number | null) => controller.finishTodo(todoId, spentMinutes),
+    setTodoSpent: (todoId: number, spentMinutes: number | null) => controller.setTodoSpent(todoId, spentMinutes),
     removeTodo: (todoId: number) => controller.removeTodo(todoId),
     addTopic: (name: string, finishesWith: Parameters<Controller['addTopic']>[1], effort: number | null, level: string | null) => controller.addTopic(name, finishesWith, effort, level),
     renameTopic: (topicId: number, name: string) => controller.renameTopic(topicId, name),

@@ -141,6 +141,8 @@ export function openDb(dataDir: string) {
   addColumn('plants', 'leaves', 'TEXT')
   addColumn('pollinations', 'study_fill', 'INTEGER NOT NULL DEFAULT 1')
   addColumn('pollinations', 'pop_needed', 'REAL NOT NULL DEFAULT 0')
+  // Which todo a session was spent on, so planned and real time can be compared.
+  addColumn('sessions', 'todo_id', 'INTEGER')
   // Beds used to stand in one row, so they keep their order along x.
   const bedColumns = (db.prepare('PRAGMA table_info(beds)').all() as { name: string }[]).map((row) => row.name)
   if (!bedColumns.includes('x')) {
@@ -299,19 +301,21 @@ export function openDb(dataDir: string) {
     ensureCurrentPlant(courseTag, true)
   }
 
-  function createSession(task: string, date: string): number {
+  function createSession(task: string, date: string, todoId: number | null = null): number {
     setMeta('lastTask', task)
+    setMeta('lastTodo', String(todoId ?? ''))
     return Number(
-      db.prepare('INSERT INTO sessions (task, date, started_at) VALUES (?, ?, ?)').run(task, date, Date.now()).lastInsertRowid,
+      db.prepare('INSERT INTO sessions (task, date, started_at, todo_id) VALUES (?, ?, ?, ?)').run(task, date, Date.now(), todoId).lastInsertRowid,
     )
   }
 
   function saveSession(id: number, state: SessionState, ended: boolean) {
     db.prepare(
-      `UPDATE sessions SET task = ?, focus_ms = ?, earned_sun = ?, blocks = ?, dips = ?, last_dip_focus_ms = ?,
+      `UPDATE sessions SET task = ?, todo_id = ?, focus_ms = ?, earned_sun = ?, blocks = ?, dips = ?, last_dip_focus_ms = ?,
        ended_at = ? WHERE id = ?`,
     ).run(
       state.task,
+      state.todoId ?? null,
       Math.round(state.focusMs),
       state.earnedSun,
       state.completedBlocks,
@@ -688,6 +692,7 @@ export function openDb(dataDir: string) {
     renamePlant: (plantId: number, name: string) =>
       db.prepare('UPDATE plants SET name = ? WHERE id = ?').run(name.trim() || null, plantId),
     lastTask: () => getMeta('lastTask') ?? '',
+    lastTodo: () => Number(getMeta('lastTodo') ?? 0) || null,
     settings: (): SessionSettings => ({ ...DEFAULT_SETTINGS, ...JSON.parse(getMeta('settings') ?? '{}') }),
     setSettings: (settings: SessionSettings) => setMeta('settings', JSON.stringify(settings)),
     dayFocusMs: (date: string): number =>

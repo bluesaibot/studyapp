@@ -69,6 +69,7 @@ export class Controller {
       streak: computeStreak(this.db.studyDays(), today),
       todayFocusMs: this.session ? this.session.dayFocusAtStartMs + this.session.focusMs : savedToday,
       lastTask: this.session?.task ?? this.db.lastTask(),
+      lastTodoId: this.session ? (this.session.todoId ?? null) : this.db.lastTodo(),
       gardenBeds: this.db.gardenBeds(),
       beds: this.db.beds(),
       shears: this.db.shears(),
@@ -117,17 +118,17 @@ export class Controller {
     this.publish()
   }
 
-  start(task: string) {
+  start(task: string, todoId: number | null = null) {
     if (this.session) return
     const date = localDate(new Date())
     const label = task.trim()
     this.summary = null
     this.db.transaction(() => {
       this.db.ensureCurrentPlant(label || null, true)
-      this.sessionId = this.db.createSession(label, date)
+      this.sessionId = this.db.createSession(label, date, todoId)
     })
     const multiplier = computeStreak(this.db.studyDays(), date).sessionMultiplier
-    this.session = startSession(label, this.db.settings(), multiplier, this.db.dayFocusMs(date))
+    this.session = startSession(label, this.db.settings(), multiplier, this.db.dayFocusMs(date), todoId)
     this.sessionDate = date
     this.appliedSun = 0
     this.lastTickAt = Date.now()
@@ -162,15 +163,15 @@ export class Controller {
   resume = () => this.update(resume)
   dip = () => this.update(markDip)
   miniGoal = () => this.update(setMiniGoal)
-  setTask = (task: string) => this.update((state) => setTask(state, task))
+  setTask = (task: string, todoId: number | null = null) => this.update((state) => setTask(state, task, todoId))
   takeBreak = () => this.update((state) => takeBreak(state))
   returnFromBreak = () => this.update(returnFromBreak)
 
   end() {
     if (!this.session) return
     this.persist(true)
-    const { task, focusMs, earnedSun, funds, completedBlocks, cardsReviewed, questionsAnswered } = this.session
-    this.summary = { task, focusMs, earnedSun, funds, blocks: completedBlocks, cardsReviewed, questionsAnswered }
+    const { task, todoId, focusMs, earnedSun, funds, completedBlocks, cardsReviewed, questionsAnswered } = this.session
+    this.summary = { task, todoId: todoId ?? null, focusMs, earnedSun, funds, blocks: completedBlocks, cardsReviewed, questionsAnswered }
     this.session = null
     this.sessionId = null
     this.sessionDate = ''
@@ -240,6 +241,8 @@ export class Controller {
   setGrade = (eventId: number, grade: number) => this.mutate(() => this.calendar.setGrade(eventId, grade, new Date()))
   addTodo = (todo: Parameters<Calendar['addTodo']>[0]) => this.mutate(() => this.calendar.addTodo(todo))
   toggleTodo = (todoId: number) => this.mutate(() => this.calendar.toggleTodo(todoId, new Date()))
+  finishTodo = (todoId: number, spentMinutes: number | null) => this.mutate(() => this.calendar.finishTodo(todoId, spentMinutes, new Date()))
+  setTodoSpent = (todoId: number, spentMinutes: number | null) => this.mutate(() => this.calendar.setTodoSpent(todoId, spentMinutes))
   removeTodo = (todoId: number) => this.mutate(() => this.calendar.removeTodo(todoId))
   setCalendarSettings = (settings: Parameters<Calendar['setSettings']>[0]) => this.mutate(() => this.calendar.setSettings(settings))
   addTopic = (name: string, finishesWith: Parameters<Calendar['addTopic']>[1], effort: number | null, level: string | null) => this.mutate(() => this.calendar.addTopic(name, finishesWith, effort, level))

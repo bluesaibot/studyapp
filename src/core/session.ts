@@ -25,6 +25,8 @@ export type SessionPhase = 'study' | 'paused' | 'break' | 'breakOver'
 
 export interface SessionState {
   task: string
+  /** The todo this session works on, if one was picked. Its time counts towards it. */
+  todoId?: number | null
   phase: SessionPhase
   settings: SessionSettings
   streakMultiplier: number
@@ -56,9 +58,11 @@ export function startSession(
   settings: SessionSettings,
   streakMultiplier: number,
   dayFocusAtStartMs: number,
+  todoId: number | null = null,
 ): SessionState {
   return {
     task,
+    todoId,
     phase: 'study',
     settings,
     streakMultiplier,
@@ -169,8 +173,8 @@ export function setMiniGoal(state: SessionState): SessionState {
   return { ...state, miniGoalAtMs: state.focusMs + MINI_GOAL_MS }
 }
 
-export function setTask(state: SessionState, task: string): SessionState {
-  return { ...state, task }
+export function setTask(state: SessionState, task: string, todoId: number | null = null): SessionState {
+  return { ...state, task, todoId }
 }
 
 export function takeBreak(state: SessionState, breakMs: number = DIP_BREAK_MS): SessionState {

@@ -22,6 +22,9 @@ import {
   type CalendarState,
   topicReward,
   type FinishesWith,
+  buildTimeTable,
+  parseDuration,
+  durationInput,
 } from './calendar'
 import { crossChance, crossGenomes, cuttingGenome, pollinationCost, pollinationProblem, sexOf } from './genetics'
 import { cutLeaf, cutProblem, NO_LEAF_STATE, regrowLeaves, regrowthOf, rollNewLeaves } from './leaves'
@@ -887,5 +890,52 @@ describe('calendar', () => {
     expect(dueNotifications(withExam, '2026-11-08', '09:00', new Set(notes.map((note) => note.key)))).toEqual([])
     expect(dueNotifications({ ...withExam, settings: { ...DEFAULT_CALENDAR_SETTINGS, notifications: false } }, '2026-11-08', '09:00', new Set())).toEqual([])
     expect(dueNotifications(state({ events: [exam({ date: '2026-11-13' })] }), '2026-11-08', '09:00', new Set()).map((note) => note.key)).toEqual(['briefing:2026-11-08'])
+  })
+})
+
+describe('time spent', () => {
+  it('reads the ways time gets typed', () => {
+    expect(parseDuration('1,5')).toBe(90)
+    expect(parseDuration('1.25')).toBe(75)
+    expect(parseDuration('1:30')).toBe(90)
+    expect(parseDuration('90 min')).toBe(90)
+    expect(parseDuration('45m')).toBe(45)
+    expect(parseDuration('2h')).toBe(120)
+    expect(parseDuration('1 h 30')).toBe(90)
+    expect(parseDuration('1h 30m')).toBe(90)
+    expect(parseDuration('')).toBe(null)
+    expect(parseDuration('0')).toBe(null)
+    expect(parseDuration('abc')).toBe(null)
+    expect(durationInput(80)).toBe('1:20')
+  })
+
+  const topic = (id: number, name: string, completedAt: number | null = null, pinned = false) =>
+    buildTopicView({ id, name, finishesWith: 'subtasks', effort: 10, effortLevel: null, completedAt, pinned }, [], [])
+  const todo = (id: number, topicName: string | null, effort: number | null, done: boolean, spentMinutes: number | null, trackedMinutes: number) => ({
+    id, title: `t${id}`, due: null, doneAt: done ? 1 : null, topic: topicName, effort, effortLevel: null, spentMinutes, trackedMinutes,
+  })
+
+  it('sums planned against real time per topic, open topics first and done todos last', () => {
+    const groups = buildTimeTable({
+      topics: [topic(1, 'Alt', 5), topic(2, 'Thesis', null, true), topic(3, 'Labor')],
+      todos: [
+        todo(1, 'Thesis', 2, true, 150, 40),
+        todo(2, 'thesis', 3, false, null, 61.7),
+        todo(3, 'Alt', 1, true, null, 30),
+        todo(4, null, null, false, null, 0),
+        todo(5, 'Gelöscht', 1, false, null, 10),
+      ],
+      looseMinutes: [{ task: 'Thesis', minutes: 20 }, { task: 'Study time', minutes: 15 }, { task: '', minutes: 5 }],
+    })
+    expect(groups.map((group) => group.name)).toEqual(['Thesis', 'Labor', 'No topic', 'Alt'])
+    const thesis = groups[0]
+    expect(thesis.todos.map((row) => row.id)).toEqual([2, 1])
+    expect(thesis.plannedMinutes).toBe(300)
+    // Entered time replaces the timer for a done todo; open ones go by the timer.
+    expect(thesis.spentMinutes).toBe(150 + 61 + 20)
+    expect(thesis.todos[1].entered).toBe(true)
+    expect(groups[2].todos.map((row) => row.id)).toEqual([4, 5])
+    expect(groups[2].looseMinutes).toBe(20)
+    expect(groups[3]).toMatchObject({ completed: true, spentMinutes: 30, plannedMinutes: 60 })
   })
 })

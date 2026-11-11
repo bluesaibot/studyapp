@@ -478,6 +478,7 @@ export function Workspace({ snapshot, place, courses, setPlace, refreshCourses, 
       {dipOpen && session && (
         <div className="workspace-dip">
           <DipPanel
+            snapshot={snapshot}
             session={session}
             topics={snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)}
             close={() => setDipOpen(false)}

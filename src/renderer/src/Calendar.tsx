@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react'
 import {
   buildBriefing,
+  buildTimeTable,
   canEnterGrade,
+  durationInput,
+  parseDuration,
+  type TimeGroup,
   clockTime,
   courseForTopic,
   daysBetween,
@@ -52,14 +56,64 @@ export function Briefing({ snapshot, courses }: { snapshot: Snapshot; courses: r
     <section className="briefing" aria-label="Today">
       <h3>Today</h3>
       <ul>
-        {items.map((item) => (
-          <li key={item.key}>
-            {item.todoId !== undefined && <input type="checkbox" aria-label={`Done: ${item.text}`} onChange={() => void window.api.toggleTodo(item.todoId!)} />}
-            <span lang="de">{item.text}</span>
-          </li>
-        ))}
+        {items.map((item) => {
+          const todo = item.todoId === undefined ? undefined : snapshot.calendar.todos.find((row) => row.id === item.todoId)
+          return <li key={item.key}>{todo ? <TodoTick todo={todo} /> : <span lang="de">{item.text}</span>}</li>
+        })}
       </ul>
     </section>
+  )
+}
+
+/** Asks what an open todo really took, with the timer's count filled in. Skipping goes by the timer. */
+export function SpentPrompt({ todo, close }: { todo: Todo; close: () => void }) {
+  const tracked = Math.floor(todo.trackedMinutes ?? 0)
+  const [text, setText] = useState(tracked > 0 ? durationInput(tracked) : '')
+  const minutes = parseDuration(text)
+  const finish = (spent: number | null) => {
+    void window.api.finishTodo(todo.id, spent)
+    close()
+  }
+  return (
+    <form
+      className="spent-prompt"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (minutes !== null) finish(minutes)
+      }}
+    >
+      <span>
+        How long did <strong lang="de">{todo.title}</strong> really take?
+      </span>
+      <span className="hint">
+        {todo.effort !== null ? `Planned ${workedText(Math.round(todo.effort * 60))}` : 'No plan set'}
+        {tracked > 0 && `, timer counted ${workedText(tracked)}`}. Type 1:30, 1,5 or 90 min.
+      </span>
+      <span className="row">
+        <input className="cal-effort" autoFocus aria-label={`Time spent on ${todo.title}`} placeholder="1:30" value={text} onChange={(event) => setText(event.target.value)} />
+        <button className="button sunny" type="submit" disabled={minutes === null}>
+          Done
+        </button>
+        <button className="button quiet" type="button" onClick={() => finish(null)} title={tracked > 0 ? 'Keeps the timer count' : 'Leaves the time empty'}>
+          Skip
+        </button>
+        <button className="link" type="button" onClick={close}>
+          Not done yet
+        </button>
+      </span>
+    </form>
+  )
+}
+
+/** A todo's checkbox. Ticking it off asks for the real time; unticking just reopens it. */
+export function TodoTick({ todo, disabled = false }: { todo: Todo; disabled?: boolean }) {
+  const [asking, setAsking] = useState(false)
+  if (asking) return <SpentPrompt todo={todo} close={() => setAsking(false)} />
+  const done = todo.doneAt !== null
+  return (
+    <label className={done ? 'todo-done' : ''}>
+      <input type="checkbox" disabled={disabled} checked={done} onChange={() => (done ? void window.api.toggleTodo(todo.id) : setAsking(true))} /> <span lang="de">{todo.title}</span>
+    </label>
   )
 }
 
@@ -233,9 +287,7 @@ function TopicCard({ topic, todos }: { topic: TopicView; todos: readonly Todo[] 
         <ul className="topic-todos">
           {own.map((todo) => (
             <li key={todo.id} className="topic-todo">
-              <label className={todo.doneAt ? 'todo-done' : ''}>
-                <input type="checkbox" disabled={completed} checked={todo.doneAt !== null} onChange={() => void window.api.toggleTodo(todo.id)} /> <span lang="de">{todo.title}</span>
-              </label>
+              <TodoTick todo={todo} disabled={completed} />
               {!completed && !todo.doneAt && <TodoEffort todo={todo} />}
             </li>
           ))}
@@ -479,9 +531,7 @@ function TodosTab({ snapshot, today }: { snapshot: Snapshot; today: string }) {
             {open.map((todo) => (
               <li key={todo.id} className="week-item">
                 <div className="week-item-head">
-                  <label>
-                    <input type="checkbox" checked={false} onChange={() => void window.api.toggleTodo(todo.id)} /> <span lang="de">{todo.title}</span>
-                  </label>
+                  <TodoTick todo={todo} />
                   {todo.due && <span>{shortDate(todo.due)}</span>}
                 </div>
                 <div className="row">
@@ -501,15 +551,134 @@ function TodosTab({ snapshot, today }: { snapshot: Snapshot; today: string }) {
             <ul className="week-list">
               {done.map((todo) => (
                 <li key={todo.id} className="week-item">
-                  <label>
-                    <input type="checkbox" checked onChange={() => void window.api.toggleTodo(todo.id)} /> <span lang="de">{todo.title}</span>
-                  </label>
+                  <div className="week-item-head">
+                    <TodoTick todo={todo} />
+                    <span className="week-reward">{spentLine(todo.spentMinutes ?? Math.floor(todo.trackedMinutes ?? 0), todo.effort)}</span>
+                  </div>
                 </li>
               ))}
             </ul>
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+function spentLine(spent: number, effort: number | null): string {
+  const planned = effort === null ? null : Math.round(effort * 60)
+  return `${spent > 0 ? workedText(spent) : '0 min'} of ${planned === null ? 'no plan' : workedText(planned)}`
+}
+
+/** How far the spent time got against the plan. Past the plan the bar turns into a warning. */
+function TimeBar({ spent, planned, label }: { spent: number; planned: number; label: string }) {
+  if (planned <= 0) return null
+  const share = spent / planned
+  return (
+    <div className={`progress time-bar${share > 1 ? ' over' : ''}`} role="progressbar" aria-label={label} aria-valuenow={Math.round(share * 100)}>
+      <span style={{ width: `${Math.min(1, share) * 100}%` }} />
+    </div>
+  )
+}
+
+function differenceText(spent: number, planned: number): string {
+  if (planned <= 0) return ''
+  const gap = spent - planned
+  if (Math.abs(gap) < 1) return 'right on plan'
+  return gap > 0 ? `${workedText(gap)} over plan` : `${workedText(-gap)} left in the plan`
+}
+
+/** A done todo's time can be corrected later, in the same forms as when ticking it off. */
+function SpentField({ id, title, minutes }: { id: number; title: string; minutes: number }) {
+  return (
+    <input
+      key={minutes}
+      className="cal-effort"
+      aria-label={`Time spent on ${title}`}
+      defaultValue={minutes > 0 ? durationInput(minutes) : ''}
+      placeholder="add"
+      onBlur={(event) => {
+        const next = parseDuration(event.target.value)
+        if (next !== minutes) void window.api.setTodoSpent(id, next)
+      }}
+    />
+  )
+}
+
+function TimeCard({ group }: { group: TimeGroup }) {
+  const greyed = group.completed
+  return (
+    <li className={`topic-card time-card${greyed ? ' completed' : ''}${group.pinned && !greyed ? ' pinned' : ''}`}>
+      <div className="week-item-head">
+        <strong lang="de" className="time-name">
+          {group.name}
+        </strong>
+        <span className="time-total">
+          <strong>{workedText(group.spentMinutes)}</strong> of {group.plannedMinutes > 0 ? workedText(group.plannedMinutes) : 'no plan'}
+        </span>
+      </div>
+      <TimeBar spent={group.spentMinutes} planned={group.plannedMinutes} label={`Time spent on ${group.name}`} />
+      <p className="week-reward">
+        {[
+          greyed ? 'Completed' : null,
+          differenceText(group.spentMinutes, group.plannedMinutes),
+          group.estimateMinutes !== null ? `topic estimate ${workedText(group.estimateMinutes)}` : null,
+          group.looseMinutes > 0 ? `${workedText(group.looseMinutes)} studied without picking a todo` : null,
+        ]
+          .filter(Boolean)
+          .join(', ')}
+      </p>
+      {group.todos.length > 0 && (
+        <ul className="topic-todos time-todos">
+          {group.todos.map((todo) => (
+            <li key={todo.id} className={`time-todo${todo.done ? ' done' : ''}`}>
+              <span lang="de" className="time-todo-title">
+                {todo.done ? '✓ ' : ''}
+                {todo.title}
+              </span>
+              <span className="time-todo-numbers">
+                {todo.done && !greyed ? <SpentField id={todo.id} title={todo.title} minutes={todo.spentMinutes} /> : <strong>{todo.spentMinutes > 0 ? workedText(todo.spentMinutes) : '0 min'}</strong>}
+                {' of '}
+                {todo.plannedMinutes === null ? 'no plan' : workedText(todo.plannedMinutes)}
+                {!todo.done && todo.spentMinutes > 0 && ' so far'}
+                {todo.done && !todo.entered && todo.spentMinutes > 0 && ' (timer)'}
+              </span>
+              {todo.spentMinutes > 0 && <TimeBar spent={todo.spentMinutes} planned={todo.plannedMinutes ?? 0} label={`Time spent on ${todo.title}`} />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+function TimeTab({ snapshot }: { snapshot: Snapshot }) {
+  const groups = buildTimeTable(snapshot.calendar)
+  const active = groups.filter((group) => !group.completed)
+  const done = groups.filter((group) => group.completed)
+  const spent = active.reduce((total, group) => total + group.spentMinutes, 0)
+  const planned = active.reduce((total, group) => total + group.plannedMinutes, 0)
+  return (
+    <div className="topics-page">
+      <p className="hint">
+        Pick a todo next to your topic on the home screen and the timer counts towards it. When you tick a todo off, you can enter what it really took. Open topics: <strong>{workedText(spent)}</strong> spent of {workedText(planned)} planned.
+      </p>
+      {groups.length === 0 && <p className="empty">Add topics and todos with hours, and planned against real time shows up here.</p>}
+      <ul className="time-list">
+        {active.map((group) => (
+          <TimeCard key={group.topicId ?? 'none'} group={group} />
+        ))}
+      </ul>
+      {done.length > 0 && (
+        <>
+          <h3>Completed</h3>
+          <ul className="time-list">
+            {done.map((group) => (
+              <TimeCard key={group.topicId ?? 'none'} group={group} />
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
@@ -535,7 +704,7 @@ function Reminders({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
-export function CalendarPage({ snapshot, courses, close, startOn = 'calendar' }: { snapshot: Snapshot; courses: readonly CourseRow[]; close: () => void; startOn?: 'calendar' | 'topics' }) {
+export function CalendarPage({ snapshot, courses, close, startOn = 'calendar' }: { snapshot: Snapshot; courses: readonly CourseRow[]; close: () => void; startOn?: 'calendar' | 'topics' | 'time' }) {
   const today = localDate(new Date())
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
@@ -553,13 +722,13 @@ export function CalendarPage({ snapshot, courses, close, startOn = 'calendar' }:
   }
   const upcoming = events.filter((event) => event.grade === null && (event.date >= today || event.kind === 'exam'))
   const past = events.filter((event) => event.grade !== null).slice(-5)
-  const [tab, setTab] = useState<'calendar' | 'todos' | 'topics'>(startOn)
+  const [tab, setTab] = useState<'calendar' | 'todos' | 'topics' | 'time'>(startOn)
   const topics = [...new Set([...snapshot.calendar.topics.map((topic) => topic.name), ...courses.map((course) => course.name)])]
 
   return (
     <main className="calendar">
       <header className="break-head">
-        <h1>{tab === 'topics' ? 'Topics' : tab === 'todos' ? 'Todos' : 'Calendar'}</h1>
+        <h1>{tab === 'topics' ? 'Topics' : tab === 'todos' ? 'Todos' : tab === 'time' ? 'Time spent' : 'Calendar'}</h1>
         <button className="button quiet" onClick={close}>
           Back
         </button>
@@ -579,8 +748,11 @@ export function CalendarPage({ snapshot, courses, close, startOn = 'calendar' }:
         <button className="tab" aria-current={tab === 'topics'} onClick={() => setTab('topics')}>
           Topics
         </button>
+        <button className="tab" aria-current={tab === 'time'} onClick={() => setTab('time')}>
+          Time spent
+        </button>
       </nav>
-      {tab === 'topics' ? <TopicsTab topics={snapshot.calendar.topics} todos={todos} /> : tab === 'todos' ? <TodosTab snapshot={snapshot} today={today} /> : <div className="calendar-columns">
+      {tab === 'time' ? <TimeTab snapshot={snapshot} /> : tab === 'topics' ? <TopicsTab topics={snapshot.calendar.topics} todos={todos} /> : tab === 'todos' ? <TodosTab snapshot={snapshot} today={today} /> : <div className="calendar-columns">
         <section>
           <div className="month-head">
             <button className="button quiet" aria-label="Previous month" onClick={() => move(-1)}>

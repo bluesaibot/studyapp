@@ -31,6 +31,8 @@ export type Calendar = ReturnType<typeof openCalendar>
 /** A first guess at the thesis, big enough for the top reward. It can be changed in the topic. */
 const THESIS_SIZE_HOURS = 200
 
+const validMinutes = (minutes: number | null) => (minutes !== null && Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : null)
+
 const validTime = (time: string | null) => (time && /^\d{2}:\d{2}$/.test(time) ? time : null)
 
 export function openCalendar(database: Db) {
@@ -46,6 +48,7 @@ export function openCalendar(database: Db) {
   if (!todoColumns.includes('paid')) db.exec('ALTER TABLE todos ADD COLUMN paid INTEGER NOT NULL DEFAULT 0')
   const eventColumns = (db.prepare('PRAGMA table_info(calendar_events)').all() as { name: string }[]).map((column) => column.name)
   if (!eventColumns.includes('time')) db.exec('ALTER TABLE calendar_events ADD COLUMN time TEXT')
+  if (!todoColumns.includes('spent_minutes')) db.exec('ALTER TABLE todos ADD COLUMN spent_minutes INTEGER')
 
   const hasTopics = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'topics'").get()
   if (!hasTopics) {
@@ -94,7 +97,13 @@ export function openCalendar(database: Db) {
   const events = (): CalendarEvent[] =>
     db.prepare('SELECT id, title, date, kind, course_id AS courseId, grade, time, topic, effort FROM calendar_events ORDER BY date, time IS NULL, time, id').all() as CalendarEvent[]
   const todos = (): Todo[] =>
-    db.prepare('SELECT id, title, due, done_at AS doneAt, topic, effort, effort_level AS effortLevel FROM todos ORDER BY done_at IS NOT NULL, due IS NULL, due, id').all() as Todo[]
+    db.prepare(`SELECT id, title, due, done_at AS doneAt, topic, effort, effort_level AS effortLevel, spent_minutes AS spentMinutes,
+       COALESCE((SELECT SUM(focus_ms) FROM sessions WHERE sessions.todo_id = todos.id), 0) / 60000.0 AS trackedMinutes
+       FROM todos ORDER BY done_at IS NOT NULL, due IS NULL, due, id`).all() as Todo[]
+  /** Sessions with no todo, or one that was removed since, count for their topic as a whole. */
+  const looseMinutes = () =>
+    db.prepare(`SELECT task, SUM(focus_ms) / 60000.0 AS minutes FROM sessions
+       WHERE todo_id IS NULL OR todo_id NOT IN (SELECT id FROM todos) GROUP BY task`).all() as { task: string; minutes: number }[]
   const settings = (): CalendarSettings => ({ ...DEFAULT_CALENDAR_SETTINGS, ...JSON.parse(database.getMeta('calendarSettings') ?? '{}') })
   const topicRows = () =>
     db.prepare(`SELECT id, name, finishes_with AS finishesWith, effort, effort_level AS effortLevel, completed_at AS completedAt, pinned = 1 AS pinned,
@@ -113,7 +122,7 @@ export function openCalendar(database: Db) {
     const allEvents = events()
     const allTodos = todos()
     const topics = topicRows().map((topic) => buildTopicView({ ...topic, pinned: Boolean(topic.pinned), workedMinutes: Math.floor(topic.workedMinutes ?? 0) }, allEvents, allTodos, localDate(now), clockTime(now)))
-    return { events: allEvents, todos: allTodos, topics, settings: settings() }
+    return { events: allEvents, todos: allTodos, topics, settings: settings(), looseMinutes: looseMinutes() }
   }
 
   return {
@@ -148,6 +157,16 @@ export function openCalendar(database: Db) {
       if (!todo) return
       db.prepare('UPDATE todos SET done_at = CASE WHEN done_at IS NULL THEN ? ELSE NULL END, paid = 1 WHERE id = ?').run(now.getTime(), todoId)
       if (todo.done_at === null && !todo.paid) database.addToWallet(todoSun(todo.effort))
+    },
+    /** Ticks it off with what it really took. Pays like ticking it, once. */
+    finishTodo(todoId: number, spentMinutes: number | null, now: Date) {
+      const todo = db.prepare('SELECT effort, done_at, paid FROM todos WHERE id = ?').get(todoId) as { effort: number | null; done_at: number | null; paid: number } | undefined
+      if (!todo || todo.done_at !== null) return
+      db.prepare('UPDATE todos SET done_at = ?, paid = 1, spent_minutes = ? WHERE id = ?').run(now.getTime(), validMinutes(spentMinutes), todoId)
+      if (!todo.paid) database.addToWallet(todoSun(todo.effort))
+    },
+    setTodoSpent(todoId: number, spentMinutes: number | null) {
+      db.prepare('UPDATE todos SET spent_minutes = ? WHERE id = ?').run(validMinutes(spentMinutes), todoId)
     },
     removeTodo(todoId: number) {
       db.prepare('DELETE FROM todos WHERE id = ?').run(todoId)

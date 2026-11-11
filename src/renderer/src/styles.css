@@ -240,7 +240,18 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  width: min(100%, 26rem);
+  width: min(100%, 34rem);
+}
+
+.work-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.work-choice select {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 input {
@@ -295,6 +306,12 @@ input {
 
 .session-task {
   font-size: 1.25rem;
+}
+
+.session-todo {
+  margin-top: -0.6rem;
+  font-size: 1rem;
+  opacity: 0.75;
 }
 
 .session-time {
@@ -1986,4 +2003,87 @@ kbd {
     animation: none;
     transition: none;
   }
+}
+
+/* Time spent */
+.time-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  max-width: 60rem;
+}
+
+.time-card .week-item-head {
+  flex-wrap: wrap;
+}
+
+.spent-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--sun);
+  background: rgb(255 255 255 / 0.35);
+  border-radius: 0 6px 6px 0;
+}
+
+.spent-prompt .cal-effort {
+  width: 5rem;
+}
+
+.time-card .week-item-head {
+  align-items: baseline;
+}
+
+.time-name {
+  font-size: 1.2rem;
+}
+
+.time-card.pinned .time-name {
+  font-size: 1.6rem;
+}
+
+.time-total {
+  white-space: nowrap;
+}
+
+.time-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.time-todo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 1rem;
+  row-gap: 0.15rem;
+  align-items: baseline;
+}
+
+.time-todo .time-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+}
+
+.time-todo.done {
+  opacity: 0.55;
+}
+
+.time-todo-numbers {
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.time-todo-numbers .cal-effort {
+  width: 4.2rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.88rem;
+}
+
+.time-bar.over span {
+  background: #c2603a;
 }

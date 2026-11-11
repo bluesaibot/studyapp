@@ -28,6 +28,10 @@ export interface Todo {
   effort: number | null
   /** Set when the effort was picked as a size instead of typed in hours. */
   effortLevel: string | null
+  /** What it really took, entered when ticking it off. */
+  spentMinutes?: number | null
+  /** Focus time of sessions that ran on this todo. */
+  trackedMinutes?: number
 }
 
 /** When a topic counts as finished. "never" is for anything ongoing or recurring. */
@@ -120,6 +124,8 @@ export interface CalendarState {
   todos: Todo[]
   topics: TopicView[]
   settings: CalendarSettings
+  /** Focus minutes of sessions without a todo, by the topic they ran under. */
+  looseMinutes?: { task: string; minutes: number }[]
 }
 
 /** Grades run from 1, the best, to 5. A 5 pays nothing and takes nothing; a retake pays as usual. */
@@ -328,4 +334,103 @@ export function dueNotifications(state: CalendarState, today: string, time: stri
     }
   }
   return notes
+}
+
+/**
+ * Minutes from what gets typed: "1,5" or "1.5" hours, "1:30", "90 min", "1 h 30", "45m".
+ * Nothing, or nothing sensible, gives null.
+ */
+export function parseDuration(text: string): number | null {
+  const value = text.trim().toLowerCase().replace(',', '.')
+  if (!value) return null
+  const clock = /^(\d+)\s*(?::|h)\s*(\d{1,2})$/.exec(value)
+  if (clock) return positive(Number(clock[1]) * 60 + Number(clock[2]))
+  const parts = /^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?$/.exec(value)
+  if (parts && (parts[1] || parts[2])) return positive(Number(parts[1] ?? 0) * 60 + Number(parts[2] ?? 0))
+  const hours = Number(value)
+  return Number.isFinite(hours) ? positive(hours * 60) : null
+}
+
+const positive = (minutes: number) => (minutes > 0 && minutes < 100_000 ? Math.round(minutes) : null)
+
+/** "1:20" for a field that should be easy to correct. */
+export function durationInput(minutes: number): string {
+  const rounded = Math.round(minutes)
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`
+}
+
+export interface TimeTodo {
+  id: number
+  title: string
+  done: boolean
+  /** Hours it was planned at; null when nobody guessed. */
+  plannedMinutes: number | null
+  spentMinutes: number
+  /** Whether the spent time was entered by hand or comes from the timer. */
+  entered: boolean
+}
+
+export interface TimeGroup {
+  /** Null for everything without a topic. */
+  topicId: number | null
+  name: string
+  completed: boolean
+  pinned: boolean
+  /** The topic's own size, when one was set. */
+  estimateMinutes: number | null
+  plannedMinutes: number
+  spentMinutes: number
+  /** Session time under the topic with no todo picked. */
+  looseMinutes: number
+  todos: TimeTodo[]
+}
+
+/** A todo counts what was entered for it, or else what the timer saw. */
+export function todoSpent(todo: Todo): number {
+  return todo.doneAt !== null && todo.spentMinutes != null ? todo.spentMinutes : Math.floor(todo.trackedMinutes ?? 0)
+}
+
+/**
+ * Planned against real time, one group per topic. Open topics come first and completed ones last;
+ * inside each, open todos come before the done ones.
+ */
+export function buildTimeTable(state: Pick<CalendarState, 'topics' | 'todos' | 'looseMinutes'>): TimeGroup[] {
+  const key = (name: string | null | undefined) => name?.trim().toLowerCase() ?? ''
+  const known = new Set(state.topics.map((topic) => key(topic.name)))
+  const loose = new Map<string, number>()
+  for (const row of state.looseMinutes ?? []) {
+    const name = known.has(key(row.task)) ? key(row.task) : ''
+    loose.set(name, (loose.get(name) ?? 0) + row.minutes)
+  }
+  const group = (topicId: number | null, name: string, completed: boolean, pinned: boolean, estimate: number | null, own: readonly Todo[], looseMinutes: number): TimeGroup => {
+    const todos = own
+      .map((todo): TimeTodo => ({
+        id: todo.id,
+        title: todo.title,
+        done: todo.doneAt !== null,
+        plannedMinutes: todo.effort === null ? null : Math.round(todo.effort * 60),
+        spentMinutes: todoSpent(todo),
+        entered: todo.doneAt !== null && todo.spentMinutes != null,
+      }))
+      .sort((a, b) => Number(a.done) - Number(b.done))
+    return {
+      topicId,
+      name,
+      completed,
+      pinned,
+      estimateMinutes: estimate === null ? null : Math.round(estimate * 60),
+      plannedMinutes: todos.reduce((total, todo) => total + (todo.plannedMinutes ?? 0), 0),
+      spentMinutes: todos.reduce((total, todo) => total + todo.spentMinutes, 0) + Math.floor(looseMinutes),
+      looseMinutes: Math.floor(looseMinutes),
+      todos,
+    }
+  }
+  const groups = state.topics.map((topic) =>
+    group(topic.id, topic.name, topic.completedAt !== null, Boolean(topic.pinned), topic.effort, state.todos.filter((todo) => key(todo.topic) === key(topic.name)), loose.get(key(topic.name)) ?? 0),
+  )
+  const orphans = state.todos.filter((todo) => !known.has(key(todo.topic)))
+  const none = group(null, 'No topic', false, false, null, orphans, loose.get('') ?? 0)
+  if (none.todos.length > 0 || none.looseMinutes > 0) groups.push(none)
+  const rank = (row: TimeGroup) => (row.completed ? 2 : row.topicId === null ? 1 : 0)
+  return groups.map((row, index) => ({ row, index })).sort((a, b) => rank(a.row) - rank(b.row) || Number(b.row.pinned) - Number(a.row.pinned) || a.index - b.index).map(({ row }) => row)
 }

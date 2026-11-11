@@ -79,6 +79,7 @@ export interface FundRow extends Fund {
 
 export interface SessionSummary {
   task: string
+  todoId: number | null
   focusMs: number
   earnedSun: number
   funds: Fund[]
@@ -96,6 +97,8 @@ export interface Snapshot {
   streak: StreakState
   todayFocusMs: number
   lastTask: string
+  /** The todo picked for the last session, so the home screen can offer it again. */
+  lastTodoId: number | null
   settings: SessionSettings
   gardenBeds: number
   beds: BedRow[]
@@ -116,12 +119,12 @@ export interface Snapshot {
 export interface StudyApi {
   getSnapshot(): Promise<Snapshot>
   onSnapshot(listener: (snapshot: Snapshot) => void): () => void
-  start(task: string): Promise<void>
+  start(task: string, todoId?: number | null): Promise<void>
   pause(): Promise<void>
   resume(): Promise<void>
   dip(): Promise<void>
   miniGoal(): Promise<void>
-  setTask(task: string): Promise<void>
+  setTask(task: string, todoId?: number | null): Promise<void>
   takeBreak(): Promise<void>
   returnFromBreak(): Promise<void>
   end(): Promise<void>
@@ -173,6 +176,9 @@ export interface StudyApi {
   setGrade(eventId: number, grade: number): Promise<void>
   addTodo(todo: { title: string; due: string | null; topic: string | null; effort: number | null; level: string | null }): Promise<void>
   toggleTodo(todoId: number): Promise<void>
+  /** Ticks an open todo off with the time it really took, or none to go by the timer. */
+  finishTodo(todoId: number, spentMinutes: number | null): Promise<void>
+  setTodoSpent(todoId: number, spentMinutes: number | null): Promise<void>
   removeTodo(todoId: number): Promise<void>
   setCalendarSettings(settings: CalendarSettings): Promise<void>
   addTopic(name: string, finishesWith: FinishesWith, effort: number | null, level: string | null): Promise<void>
@@ -245,6 +251,8 @@ export const API_METHODS = [
   'setGrade',
   'addTodo',
   'toggleTodo',
+  'finishTodo',
+  'setTodoSpent',
   'removeTodo',
   'setCalendarSettings',
   'addTopic',

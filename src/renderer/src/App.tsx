@@ -4,9 +4,10 @@ import { speciesById, stageIndex, STAGES } from '../../core/plants'
 import { POT_DESIGNS } from '../../core/pots'
 import { localDate } from '../../core/streak'
 import type { SessionState } from '../../core/session'
+import type { Todo } from '../../core/calendar'
 import type { PlantRow, Snapshot } from '../../shared/api'
 import type { CourseRow } from '../../shared/study'
-import { Briefing, CalendarPage } from './Calendar'
+import { Briefing, CalendarPage, SpentPrompt } from './Calendar'
 import { fundEffect, fundTitle, Garden } from './Garden'
 import { Library } from './Library'
 import { PlantStage, PlantView, Pot } from './PlantView'
@@ -106,6 +107,44 @@ function TopicChoice({ topics, value, onChange }: { topics: readonly string[]; v
   )
 }
 
+/** Open todos of the picked topic, or the ones without a topic for "No topic". */
+function todosFor(snapshot: Snapshot, topic: string): Todo[] {
+  const names = snapshot.calendar.topics.map((row) => row.name.toLowerCase())
+  // A session label like "Study time" is no topic of yours, so it offers the todos without one.
+  const wanted = names.includes(topic.toLowerCase()) ? topic.toLowerCase() : ''
+  return snapshot.calendar.todos.filter((todo) => {
+    if (todo.doneAt !== null) return false
+    const own = todo.topic?.toLowerCase() ?? ''
+    return wanted ? own === wanted : !own || !names.includes(own)
+  })
+}
+
+/** The todo inside the topic, if it is about one thing in particular. Its time then counts for that todo. */
+function TodoChoice({ todos, value, onChange }: { todos: readonly Todo[]; value: number | null; onChange: (todoId: number | null) => void }) {
+  return (
+    <select lang="de" aria-label="Todo" value={value ?? ''} disabled={todos.length === 0} onChange={(event) => onChange(Number(event.target.value) || null)}>
+      <option value="">{todos.length === 0 ? 'No open todos' : 'No todo in particular'}</option>
+      {todos.map((todo) => (
+        <option key={todo.id} value={todo.id}>
+          {todo.title}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** The topic and its todo side by side, so a session can be booked on exactly what it was spent on. */
+function WorkChoice({ snapshot, topics, topic, todoId, onChange }: { snapshot: Snapshot; topics: readonly string[]; topic: string; todoId: number | null; onChange: (topic: string, todoId: number | null) => void }) {
+  const todos = todosFor(snapshot, topic)
+  const todo = todos.some((row) => row.id === todoId) ? todoId : null
+  return (
+    <span className="work-choice">
+      <TopicChoice topics={topics} value={topic} onChange={(next) => onChange(next, null)} />
+      <TodoChoice todos={todos} value={todo} onChange={(next) => onChange(topic, next)} />
+    </span>
+  )
+}
+
 function Home({ snapshot, openGarden, openLibrary, openWeek, openCalendar, openTopics: showTopics, courses }: { snapshot: Snapshot; openGarden: () => void; openLibrary: () => void; openWeek: () => void; openCalendar: () => void; openTopics: () => void; courses: CourseRow[] }) {
   const now = new Date()
   const ready = courses
@@ -113,18 +152,29 @@ function Home({ snapshot, openGarden, openLibrary, openWeek, openCalendar, openT
     .reduce((total, course) => total + course.cardsReady + course.questionsReady, 0)
   const openTopics = snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)
   const [picked, setPicked] = useState(snapshot.lastTask)
+  const [pickedTodo, setPickedTodo] = useState<number | null>(snapshot.lastTodoId)
   // Last time's topic if it is still open, otherwise the first one that is.
   const task = openTopics.includes(picked) || picked === '' ? picked : (openTopics[0] ?? '')
+  const todoId = todosFor(snapshot, task).some((todo) => todo.id === pickedTodo) ? pickedTodo : null
   return (
     <main className="home">
       <section className="home-left">
-        <button className="sun-button" onClick={() => void window.api.start(task || 'Study time')}>
+        <button className="sun-button" onClick={() => void window.api.start(task || 'Study time', todoId)}>
           Study now
         </button>
         <p className="home-promise">Just 5 minutes. Then decide again.</p>
         <label className="task-field">
           What are you working on?
-          <TopicChoice topics={openTopics} value={task} onChange={setPicked} />
+          <WorkChoice
+            snapshot={snapshot}
+            topics={openTopics}
+            topic={task}
+            todoId={todoId}
+            onChange={(topic, todo) => {
+              setPicked(topic)
+              setPickedTodo(todo)
+            }}
+          />
         </label>
         {openTopics.length === 0 && (
           <button className="link" onClick={openCalendar}>
@@ -164,14 +214,14 @@ function Home({ snapshot, openGarden, openLibrary, openWeek, openCalendar, openT
   )
 }
 
-export function DipPanel({ session, topics, close, easyCards }: { session: SessionState; topics: readonly string[]; close: () => void; easyCards?: () => void }) {
+export function DipPanel({ snapshot, session, topics, close, easyCards }: { snapshot: Snapshot; session: SessionState; topics: readonly string[]; close: () => void; easyCards?: () => void }) {
   const [changing, setChanging] = useState(false)
   if (changing) {
     return (
       <div className="dip-panel">
         <label className="task-field">
           What will you do instead?
-          <TopicChoice topics={topics} value={session.task} onChange={(topic) => void window.api.setTask(topic)} />
+          <WorkChoice snapshot={snapshot} topics={topics} topic={session.task} todoId={session.todoId ?? null} onChange={(topic, todo) => void window.api.setTask(topic, todo)} />
         </label>
         <button className="button" onClick={close}>
           Continue with this
@@ -274,6 +324,11 @@ function SessionScreen({ snapshot, session, course, openStudy, openLibrary }: Se
       />
       <section className="session-left">
         <p className="session-task">{session.task || 'Study time'}</p>
+        {todoTitle(snapshot, session.todoId) && (
+          <p className="session-todo" lang="de">
+            {todoTitle(snapshot, session.todoId)}
+          </p>
+        )}
         <p className="session-time" role="timer">
           {clock(blockMs - session.blockFocusMs)}
         </p>
@@ -283,6 +338,7 @@ function SessionScreen({ snapshot, session, course, openStudy, openLibrary }: Se
         </p>
         {dipOpen ? (
           <DipPanel
+            snapshot={snapshot}
             session={session}
             topics={snapshot.calendar.topics.filter((topic) => topic.completedAt === null).map((topic) => topic.name)}
             close={() => setDipOpen(false)}
@@ -375,8 +431,26 @@ function BreakScreen({ snapshot, session }: { snapshot: Snapshot; session: Sessi
   )
 }
 
+function todoTitle(snapshot: Snapshot, todoId: number | null | undefined): string | null {
+  return snapshot.calendar.todos.find((todo) => todo.id === todoId)?.title ?? null
+}
+
+/** After a session on a todo, it can be ticked off right here, with the time it took. */
+function FinishTodo({ todo }: { todo: Todo }) {
+  const [asking, setAsking] = useState(false)
+  if (asking) return <SpentPrompt todo={todo} close={() => setAsking(false)} />
+  return (
+    <p>
+      <button className="link" onClick={() => setAsking(true)}>
+        <span lang="de">{todo.title}</span> is finished
+      </button>
+    </p>
+  )
+}
+
 function SummaryScreen({ snapshot }: { snapshot: Snapshot }) {
   const summary = snapshot.summary!
+  const todo = snapshot.calendar.todos.find((row) => row.id === summary.todoId && row.doneAt === null)
   return (
     <main className="summary">
       <ShelfPlant snapshot={snapshot} />
@@ -393,6 +467,7 @@ function SummaryScreen({ snapshot }: { snapshot: Snapshot }) {
             {summary.questionsAnswered > 0 && `${summary.questionsAnswered} ${summary.questionsAnswered === 1 ? 'question' : 'questions'}`} practised.
           </p>
         )}
+        {todo && <FinishTodo todo={todo} />}
         {summary.funds.length > 0 && (
           <ul className="summary-funds">
             {summary.funds.map((fund) => (
@@ -401,7 +476,7 @@ function SummaryScreen({ snapshot }: { snapshot: Snapshot }) {
           </ul>
         )}
         <div className="row">
-          <button className="button sunny" onClick={() => void window.api.start(summary.task)}>
+          <button className="button sunny" onClick={() => void window.api.start(summary.task, todo?.id ?? null)}>
             One more round
           </button>
           <button className="button quiet" onClick={() => void window.api.dismissSummary()}>
